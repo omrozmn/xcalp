@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="21754" systemVersion="22E261" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="Patient" representedClassName="Patient" syncable="YES">
+        <attribute name="dateOfBirth" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="firstName" attributeType="String"/>
+        <attribute name="gender" optional="YES" attributeType="String"/>
+        <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="lastName" attributeType="String"/>
+        <relationship name="scans" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Scan" inverseName="patient" inverseEntity="Scan"/>
+        <relationship name="treatments" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="Treatment" inverseName="patient" inverseEntity="Treatment"/>
+    </entity>
+    <entity name="Scan" representedClassName="ScanEntity" syncable="YES">
+        <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="patientId" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="timestamp" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="quality" attributeType="Float" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="meshData" optional="YES" attributeType="Binary">
+            <userInfo>
+                <entry key="encrypted" value="YES"/>
+            </userInfo>
+        </attribute>
+        <attribute name="notes" optional="YES" attributeType="String"/>
+        <attribute name="metadata" optional="YES" attributeType="Binary"/>
+        <attribute name="thumbnailData" optional="YES" attributeType="Binary"/>
+        <relationship name="patient" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Patient" inverseName="scans" inverseEntity="Patient"/>
+        <relationship name="treatments" optional="YES" toMany="YES" deletionRule="Nullify" destinationEntity="Treatment" inverseName="scan" inverseEntity="Treatment"/>
+    </entity>
+    <entity name="Treatment" representedClassName="Treatment" syncable="YES">
+        <attribute name="createdAt" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="notes" optional="YES" attributeType="String"/>
+        <attribute name="planData" optional="YES" attributeType="Binary">
+            <userInfo>
+                <entry key="encrypted" value="YES"/>
+            </userInfo>
+        </attribute>
+        <attribute name="status" attributeType="String"/>
+        <attribute name="type" attributeType="String"/>
+        <relationship name="patient" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Patient" inverseName="treatments" inverseEntity="Patient"/>
+        <relationship name="scan" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="Scan" inverseName="treatments" inverseEntity="Scan"/>
+    </entity>
+</model>

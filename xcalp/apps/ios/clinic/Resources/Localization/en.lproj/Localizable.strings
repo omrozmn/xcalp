@@ -1,0 +1,46 @@
+// Common
+"common.ok" = "OK";
+"common.cancel" = "Cancel";
+"common.save" = "Save";
+"common.delete" = "Delete";
+"common.error" = "Error";
+
+// Auth
+"auth.login.title" = "Welcome Back";
+"auth.login.email" = "Email";
+"auth.login.password" = "Password";
+"auth.login.button" = "Sign In";
+"auth.login.forgot" = "Forgot Password?";
+"auth.login.biometric" = "Use Face ID";
+
+// Scanning
+"scan.title" = "3D Scan";
+"scan.start" = "Start Scan";
+"scan.stop" = "Stop Scan";
+"scan.capture" = "Capture";
+"scan.quality.good" = "Good Quality";
+"scan.quality.fair" = "Fair Quality";
+"scan.quality.poor" = "Poor Quality";
+"scan.guide.move_closer" = "Move closer to the subject";
+"scan.guide.move_farther" = "Move farther from the subject";
+"scan.guide.move_slower" = "Move the device more slowly";
+"scan.guide.hold_steady" = "Hold the device steady";
+"scan.guide.complete" = "Scan complete!";
+
+// Patient List
+"patients.title" = "Patients";
+"patients.search" = "Search patients...";
+"patients.add" = "Add Patient";
+"patients.age" = "Age: %d";
+"patients.last_visit" = "Last Visit: %@";
+
+// Settings
+"settings.title" = "Settings";
+"settings.profile" = "Profile";
+"settings.name" = "Name";
+"settings.email" = "Email";
+"settings.role" = "Role";
+"settings.preferences" = "Preferences";
+"settings.biometrics" = "Use Biometrics";
+"settings.dark_mode" = "Dark Mode";
+"settings.notifications" = "Notifications";

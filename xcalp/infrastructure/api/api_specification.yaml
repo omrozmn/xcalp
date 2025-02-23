@@ -1,0 +1,145 @@
+openapi: 3.0.0
+info:
+  title: XCALP API
+  version: 1.0.0
+  description: Core API for XCALP Hair Transplantation Platform
+
+servers:
+  - url: https://api.xcalp.com/v1
+    description: Production server
+  - url: https://staging-api.xcalp.com/v1
+    description: Staging server
+  - url: http://localhost:3000/v1
+    description: Development server
+
+paths:
+  /auth:
+    post:
+      summary: Authenticate user
+      tags: [Authentication]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Successful authentication
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/User'
+
+  /scans:
+    post:
+      summary: Upload new scan
+      tags: [Scanning]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                scanData:
+                  type: string
+                  format: binary
+                metadata:
+                  type: object
+      responses:
+        '201':
+          description: Scan uploaded successfully
+
+  /treatments:
+    post:
+      summary: Create treatment plan
+      tags: [Treatment]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TreatmentPlan'
+      responses:
+        '201':
+          description: Treatment plan created successfully
+
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          enum: [clinic, customer, admin]
+        name:
+          type: string
+
+    TreatmentPlan:
+      type: object
+      properties:
+        id:
+          type: string
+        patientId:
+          type: string
+        clinicId:
+          type: string
+        scanId:
+          type: string
+        areas:
+          type: array
+          items:
+            $ref: '#/components/schemas/TreatmentArea'
+        created:
+          type: string
+          format: date-time
+        updated:
+          type: string
+          format: date-time
+
+    TreatmentArea:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [donor, recipient]
+        coordinates:
+          type: array
+          items:
+            type: object
+            properties:
+              x:
+                type: number
+              y:
+                type: number
+              z:
+                type: number
+        graftCount:
+          type: integer
+        density:
+          type: number
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

@@ -1,0 +1,147 @@
+# XCALP Security Configuration
+
+# Authentication
+authentication:
+  jwt:
+    expiration: 24h
+    refresh_expiration: 7d
+    algorithms:
+      - HS256
+      - RS256
+  
+  mfa:
+    enabled: true
+    methods:
+      - authenticator_app
+      - sms
+      - email
+    
+  session:
+    max_duration: 12h
+    idle_timeout: 30m
+    max_concurrent: 5
+
+# Authorization
+authorization:
+  roles:
+    - name: admin
+      permissions:
+        - all
+    
+    - name: clinic_admin
+      permissions:
+        - manage_clinic
+        - manage_staff
+        - manage_patients
+        - manage_treatments
+        - view_analytics
+    
+    - name: clinic_staff
+      permissions:
+        - view_patients
+        - manage_treatments
+        - manage_appointments
+    
+    - name: patient
+      permissions:
+        - view_profile
+        - book_appointments
+        - view_treatments
+        - manage_scans
+
+# Data Protection
+data_protection:
+  encryption:
+    at_rest:
+      algorithm: AES-256-GCM
+      key_rotation: 90d
+    
+    in_transit:
+      protocols:
+        - TLS 1.3
+        - TLS 1.2
+    
+    key_management:
+      storage: vault
+      backup: true
+
+  privacy:
+    data_retention:
+      medical_records: 7y
+      scan_data: 5y
+      logs: 1y
+    
+    anonymization:
+      enabled: true
+      fields:
+        - personal_identifiers
+        - medical_history
+        - contact_information
+
+# Compliance
+compliance:
+  hipaa:
+    enabled: true
+    audit_logging: true
+    data_encryption: true
+    access_control: true
+    
+  gdpr:
+    enabled: true
+    data_protection: true
+    user_consent: true
+    data_portability: true
+
+# Monitoring
+security_monitoring:
+  logging:
+    level: info
+    retention: 90d
+    sensitive_fields:
+      - password
+      - token
+      - medical_data
+  
+  alerts:
+    - type: unauthorized_access
+      threshold: 5
+      window: 5m
+      
+    - type: suspicious_activity
+      threshold: 10
+      window: 1h
+      
+    - type: data_breach
+      threshold: 1
+      window: 1m
+
+# API Security
+api_security:
+  rate_limiting:
+    enabled: true
+    default_limit: 1000/h
+    burst: 50
+    
+  cors:
+    allowed_origins:
+      - https://*.xcalp.com
+    allowed_methods:
+      - GET
+      - POST
+      - PUT
+      - DELETE
+    allowed_headers:
+      - Authorization
+      - Content-Type
+    
+  input_validation:
+    enabled: true
+    sanitization: true
+    max_payload_size: 10MB
+
+# Backup & Recovery
+backup:
+  frequency: 24h
+  encryption: true
+  retention: 90d
+  testing: weekly

@@ -1,0 +1,46 @@
+// Common
+"common.ok" = "Tamam";
+"common.cancel" = "İptal";
+"common.save" = "Kaydet";
+"common.delete" = "Sil";
+"common.error" = "Hata";
+
+// Auth
+"auth.login.title" = "Tekrar Hoşgeldiniz";
+"auth.login.email" = "E-posta";
+"auth.login.password" = "Şifre";
+"auth.login.button" = "Giriş Yap";
+"auth.login.forgot" = "Şifremi Unuttum";
+"auth.login.biometric" = "Face ID Kullan";
+
+// Scanning
+"scan.title" = "3D Tarama";
+"scan.start" = "Taramayı Başlat";
+"scan.stop" = "Taramayı Durdur";
+"scan.capture" = "Yakala";
+"scan.quality.good" = "İyi Kalite";
+"scan.quality.fair" = "Orta Kalite";
+"scan.quality.poor" = "Düşük Kalite";
+"scan.guide.move_closer" = "Hastaya daha yaklaşın";
+"scan.guide.move_farther" = "Hastadan uzaklaşın";
+"scan.guide.move_slower" = "Cihazı daha yavaş hareket ettirin";
+"scan.guide.hold_steady" = "Cihazı sabit tutun";
+"scan.guide.complete" = "Tarama tamamlandı!";
+
+// Patient List
+"patients.title" = "Hastalar";
+"patients.search" = "Hasta ara...";
+"patients.add" = "Hasta Ekle";
+"patients.age" = "Yaş: %d";
+"patients.last_visit" = "Son Ziyaret: %@";
+
+// Settings
+"settings.title" = "Ayarlar";
+"settings.profile" = "Profil";
+"settings.name" = "İsim";
+"settings.email" = "E-posta";
+"settings.role" = "Rol";
+"settings.preferences" = "Tercihler";
+"settings.biometrics" = "Biyometrik Kullan";
+"settings.dark_mode" = "Karanlık Mod";
+"settings.notifications" = "Bildirimler";

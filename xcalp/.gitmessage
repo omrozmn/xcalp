@@ -1,0 +1,21 @@
+# <type>: <subject> (50 char max)
+
+# Body (72 char per line)
+
+
+# Type options:
+#   feat     (new feature)
+#   fix      (bug fix)
+#   refactor (refactoring code)
+#   style    (formatting, no code change)
+#   docs     (documentation changes)
+#   test     (adding tests, refactoring tests)
+#   chore    (updating build tasks, package configs)
+#
+# Example:
+# feat: add patient search functionality
+#
+# Implement search by name and ID in patient list
+# - Add search bar UI
+# - Add search logic
+# - Update tests
