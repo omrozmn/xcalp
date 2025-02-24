@@ -1,19 +1,33 @@
 import Foundation
+import QuartzCore
 import Metal
 import MetalPerformanceShaders
+import os.signpost
 
-class PerformanceMonitor {
+final class PerformanceMonitor {
+    static let sharedInstance: PerformanceMonitor = {
+        do {
+            let monitor = try PerformanceMonitor()
+            return monitor
+        } catch {
+            fatalError("Failed to initialize PerformanceMonitor: \(error)")
+        }
+    }()
+    private let log = OSLog(subsystem: "com.xcalp.clinic", category: "performance")
+    private var measurements: [String: Double] = [:]
+    private var signposts: [String: OSSignpostID] = [:]
+
     private var metrics: PerformanceMetrics = PerformanceMetrics()
     private let device: MTLDevice
     private let commandQueue: MTLCommandQueue
-    private let performanceThresholds = PerformanceThresholds()
+    private var performanceThresholds = PerformanceThresholds()
     private var lastOptimization: Date = Date()
     private let optimizationInterval: TimeInterval = 1.0
     
     private var resourceMonitor: ResourceUsageMonitor
     private var gpuWorkload: GPUWorkloadMonitor
     
-    init() throws {
+    private init() throws {
         guard let device = MTLCreateSystemDefaultDevice(),
               let commandQueue = device.makeCommandQueue() else {
             throw PerformanceError.initializationFailed
@@ -23,6 +37,34 @@ class PerformanceMonitor {
         self.commandQueue = commandQueue
         self.resourceMonitor = ResourceUsageMonitor()
         self.gpuWorkload = GPUWorkloadMonitor(device: device)
+    }
+    
+    @discardableResult
+    func startMeasuring(_ name: String, category: String = "general") -> OSSignpostID {
+        let signpostID = OSSignpostID(log: log)
+        os_signpost(.begin, log: log, name: #file, signpostID: signpostID, "%{public}s", category)
+        signposts[name] = signpostID
+        return signpostID
+    }
+
+    func endMeasuring(_ name: String, signpostID: OSSignpostID, category: String = "general") {
+        os_signpost(.end, log: log, name: #file, signpostID: signpostID, "%{public}s", category)
+        measurements[name] = measurementDuration(signpostID: signpostID)
+    }
+    
+    func measurementDuration(signpostID: OSSignpostID) -> Double {
+        // Implementation would use os_signpost_interval_ns to get actual duration
+        // This is a placeholder that returns a mock value for now
+        return 0.0
+    }
+    
+    func getMeasurement(_ name: String) -> Double {
+        return measurements[name] ?? 0.0
+    }
+    
+    func reset() {
+        measurements.removeAll()
+        signposts.removeAll()
     }
     
     func beginFrame() {
@@ -47,11 +89,13 @@ class PerformanceMonitor {
             performanceThresholds.adjustForPhotogrammetry()
         case .fusion:
             performanceThresholds.adjustForFusion()
-        }
+        case .initializing: break
+
+}
     }
     
     func reportResourceMetrics() -> ResourceMetrics {
-        return ResourceMetrics(
+        ResourceMetrics(
             cpuUsage: resourceMonitor.getCPUUsage(),
             memoryUsage: resourceMonitor.getMemoryUsage(),
             gpuUsage: gpuWorkload.getCurrentWorkload(),
@@ -74,7 +118,7 @@ class PerformanceMonitor {
     
     private func shouldOptimize(metrics: ResourceMetrics) -> Bool {
         // Check if any metrics exceed thresholds
-        return metrics.cpuUsage > performanceThresholds.maxCPUUsage ||
+        metrics.cpuUsage > performanceThresholds.maxCPUUsage ||
                metrics.memoryUsage > performanceThresholds.maxMemoryUsage ||
                metrics.gpuUsage > performanceThresholds.maxGPUUsage ||
                metrics.thermalState == .serious
@@ -119,7 +163,7 @@ class PerformanceMonitor {
     }
     
     private func getCurrentThermalState() -> ProcessInfo.ThermalState {
-        return ProcessInfo.processInfo.thermalState
+        ProcessInfo.processInfo.thermalState
     }
 }
 
@@ -135,7 +179,7 @@ struct PerformanceMetrics {
     }
     
     var averageFrameTime: CFTimeInterval {
-        return frameCount > 0 ? totalFrameTime / CFTimeInterval(frameCount) : 0
+        frameCount > 0 ? totalFrameTime / CFTimeInterval(frameCount) : 0
     }
 }
 
@@ -195,12 +239,12 @@ enum PerformanceError: Error {
 private class ResourceUsageMonitor {
     func getCPUUsage() -> Float {
         // Implement CPU usage monitoring
-        return 0.0
+        0.0
     }
     
     func getMemoryUsage() -> Float {
         // Implement memory usage monitoring
-        return 0.0
+        0.0
     }
 }
 
@@ -213,6 +257,6 @@ private class GPUWorkloadMonitor {
     
     func getCurrentWorkload() -> Float {
         // Implement GPU workload monitoring
-        return 0.0
+        0.0
     }
 }

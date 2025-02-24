@@ -1,5 +1,5 @@
-import SwiftUI
 import ComposableArchitecture
+import SwiftUI
 
 struct TemplateVersionHistoryView: View {
     let store: StoreOf<TreatmentTemplateFeature>

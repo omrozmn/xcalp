@@ -1,6 +1,6 @@
-import SwiftUI
-import CoreGraphics
 import Combine
+import CoreGraphics
+import SwiftUI
 
 public final class GestureRecognizerManager: ObservableObject {
     public static let shared = GestureRecognizerManager()

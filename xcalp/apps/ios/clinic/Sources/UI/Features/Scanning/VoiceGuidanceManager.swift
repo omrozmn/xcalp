@@ -1,5 +1,5 @@
-import Foundation
 import AVFoundation
+import Foundation
 
 public final class VoiceGuidanceManager {
     private let synthesizer = AVSpeechSynthesizer()

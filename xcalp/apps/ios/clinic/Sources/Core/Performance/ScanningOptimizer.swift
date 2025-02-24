@@ -1,5 +1,5 @@
-import Foundation
 import ARKit
+import Foundation
 import Metal
 
 class ScanningOptimizer {

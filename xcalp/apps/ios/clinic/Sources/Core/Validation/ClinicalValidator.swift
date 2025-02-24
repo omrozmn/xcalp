@@ -1,6 +1,6 @@
+import CoreML
 import Foundation
 import SceneKit
-import CoreML
 
 class ClinicalValidator {
     static let shared = ClinicalValidator()
@@ -27,7 +27,7 @@ class ClinicalValidator {
         
         // Then validate clinical parameters
         let density = calculateDensity(result.selectedArea)
-        guard density >= ClinicalConstants.minimumGraftDensity,
+        guard density >= AppConfig.minimumGraftDensity,
               density <= ClinicalConstants.safeMaximumGraftDensity else {
             throw ValidationError.densityOutOfRange
         }
@@ -44,26 +44,26 @@ class ClinicalValidator {
         let metadata = try ScanMetadata(from: scanData)
         
         // Check point cloud density (from MDPI guidelines)
-        guard metadata.pointDensity >= ClinicalConstants.minimumPointDensity else {
+        guard metadata.pointDensity >= AppConfig.minimumPointDensity else {
             throw ValidationError.insufficientPointDensity(
                 current: metadata.pointDensity,
-                required: ClinicalConstants.minimumPointDensity
+                required: AppConfig.minimumPointDensity
             )
         }
         
         // Validate lighting conditions
-        guard metadata.ambientLighting >= ClinicalConstants.minimumLightingLux else {
+        guard metadata.ambientLighting >= AppConfig.minimumScanLightingLux else {
             throw ValidationError.insufficientLighting(
                 current: metadata.ambientLighting,
-                required: ClinicalConstants.minimumLightingLux
+                required: AppConfig.minimumScanLightingLux
             )
         }
         
         // Check motion stability (from Wiley research)
-        guard metadata.motionDeviation <= ClinicalConstants.maxMotionDeviation else {
+        guard metadata.motionDeviation <= AppConfig.maximumMotionDeviation else {
             throw ValidationError.excessiveMotion(
                 deviation: metadata.motionDeviation,
-                maximum: ClinicalConstants.maxMotionDeviation
+                maximum: AppConfig.maximumMotionDeviation
             )
         }
         
@@ -73,22 +73,22 @@ class ClinicalValidator {
     
     private func validateMeshQuality(_ metrics: MeshQualityMetrics) throws {
         // Check normal consistency (from Springer guidelines)
-        guard metrics.normalConsistency >= ClinicalConstants.minimumNormalConsistency else {
+        guard metrics.normalConsistency >= AppConfig.minimumNormalConsistency else {
             throw ValidationError.poorMeshQuality("Insufficient normal consistency")
         }
         
         // Validate surface smoothness
-        guard metrics.surfaceSmoothness >= ClinicalConstants.minimumSurfaceSmoothness else {
+        guard metrics.surfaceSmoothness >= AppConfig.minimumSurfaceSmoothness else {
             throw ValidationError.poorMeshQuality("Insufficient surface smoothness")
         }
         
         // Check vertex density
-        guard metrics.vertexDensity >= ClinicalConstants.minimumVertexDensity else {
+        guard metrics.vertexDensity >= AppConfig.minimumVertexDensity else {
             throw ValidationError.poorMeshQuality("Insufficient vertex density")
         }
         
         // Verify feature preservation
-        guard metrics.featurePreservationScore >= ClinicalConstants.featurePreservationThreshold else {
+        guard metrics.featurePreservationScore >= AppConfig.featurePreservationThreshold else {
             throw ValidationError.poorMeshQuality("Critical features not preserved")
         }
     }
@@ -109,8 +109,8 @@ class ClinicalValidator {
     private func validateGraftPlanning(_ result: ScanResult) -> GraftMetrics {
         // Implement ISHRS FUE guidelines
         let density = calculateDensity(result.selectedArea)
-        guard density >= ClinicalConstants.minimumGraftDensity,
-              density <= ClinicalConstants.safeMaximumGraftDensity else {
+        guard density >= AppConfig.minimumPointDensity,
+              density <= AppConfig.safeMaximumGraftDensity else {
             throw ValidationError.densityOutOfRange
         }
         

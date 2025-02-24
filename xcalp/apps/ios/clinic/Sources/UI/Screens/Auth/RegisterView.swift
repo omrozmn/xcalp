@@ -54,7 +54,7 @@ struct RegisterView: View {
                     }
                     
                     // Register Button
-                    Button(action: { Task { await viewModel.register() }}) {
+                    Button(action: { Task { await viewModel.register() } }) {
                         Text("Create Account")
                             .font(XcalpTypography.button)
                             .foregroundColor(.white)

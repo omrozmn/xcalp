@@ -1,5 +1,5 @@
-import SwiftUI
 import ComposableArchitecture
+import SwiftUI
 
 struct TemplateFilterSystem: View {
     @Binding var searchText: String

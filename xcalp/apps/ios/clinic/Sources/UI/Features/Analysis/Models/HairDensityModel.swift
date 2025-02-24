@@ -28,7 +28,9 @@ class HairDensityModel {
         config.computeUnits = configuration.computeUnits
         
         // Load compiled model
-        let modelURL = Bundle.module.url(forResource: "HairDensityNet", withExtension: "mlmodelc")!
+        guard let modelURL = Bundle.module.url(forResource: "HairDensityNet", withExtension: "mlmodelc") else {
+            throw NSError(domain: "ModelError", code: 0, userInfo: [NSLocalizedDescriptionKey: "Failed to find model URL"])
+        }
         self.model = try MLModel(contentsOf: modelURL, configuration: config)
         
         // Initialize supporting components
@@ -54,9 +56,9 @@ class HairDensityModel {
         // Convert to density predictions
         return predictions.map { prediction in
             DensityPrediction(
-                density: prediction.featureValue(for: "density")!.floatValue,
-                confidence: prediction.featureValue(for: "confidence")!.floatValue,
-                region: prediction.featureValue(for: "region")!.multiArrayValue!
+                density: prediction.featureValue(for: "density")?.floatValue ?? 0.0,
+                confidence: prediction.featureValue(for: "confidence")?.floatValue ?? 0.0,
+                region: prediction.featureValue(for: "region")?.multiArrayValue ?? MLMultiArray()
             )
         }
     }
@@ -77,8 +79,8 @@ struct DensityMap {
     let height: Int
     private let densityValues: [Float]
     
-    func density(at x: Int, _ y: Int) -> Float {
-        guard x >= 0 && x < width && y >= 0 && y < height else { return 0 }
-        return densityValues[y * width + x]
+    func density(at xCoordinate: Int, _ yCoordinate: Int) -> Float {
+        guard xCoordinate >= 0 && xCoordinate < width && yCoordinate >= 0 && yCoordinate < height else { return 0 }
+        return densityValues[yCoordinate * width + xCoordinate]
     }
 }

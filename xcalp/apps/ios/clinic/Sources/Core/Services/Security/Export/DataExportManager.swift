@@ -1,5 +1,6 @@
-import Foundation
 import CryptoKit
+import Foundation
+import HIPAAMedicalDataHandler
 
 public final class DataExportManager {
     public static let shared = DataExportManager()
@@ -22,14 +23,18 @@ public final class DataExportManager {
         // Apply HIPAA-compliant protection
         let protectedData = try hipaaHandler.applyProtection(to: data, level: sensitivity)
         
-        // Create export package
-        let exportPackage = try await createExportPackage(
+        // Generate export package with metadata
+        let exportPackage = ExportPackage(
             data: protectedData,
-            request: request,
-            sensitivity: sensitivity
+            metadata: ExportMetadata(
+                timestamp: Date(),
+                purpose: request.purpose,
+                sensitivity: sensitivity,
+                exportedBy: SessionManager.shared.currentSession?.userID ?? "SYSTEM"
+            )
         )
         
-        // Log export
+        // Log export event
         logger.log(
             type: .export,
             action: "Data Export",
@@ -63,25 +68,38 @@ public final class DataExportManager {
     }
     
     private func loadData(for request: ExportRequest) async throws -> Data {
-        // TODO: Implement actual data loading from secure storage
-        // This is a placeholder that should be replaced with actual implementation
-        return Data()
-    }
-    
-    private func createExportPackage(
-        data: Data,
-        request: ExportRequest,
-        sensitivity: SensitivityLevel
-    ) async throws -> ExportPackage {
-        ExportPackage(
-            data: data,
-            metadata: ExportMetadata(
-                timestamp: Date(),
-                purpose: .patientRequest,
-                sensitivity: sensitivity,
-                exportedBy: AuthenticationService.shared.currentSession?.userID ?? "SYSTEM"
+        guard let session = SessionManager.shared.currentSession,
+              AccessControlService.shared.validateAccess(for: .exportData) else {
+            throw SecurityError.unauthorizedAccess
+        }
+        
+        let storage = SecureStorageService.shared
+        var exportData = Data()
+        
+        for dataType in request.dataTypes {
+            // Load data from secure storage
+            let data = try await storage.retrieve(
+                type: DataType(rawValue: dataType) ?? .patientInfo,
+                identifier: request.patientID
             )
-        )
+            
+            // Log access for HIPAA compliance
+            logger.log(
+                type: .access,
+                action: "Export Data Access",
+                userID: session.userID,
+                details: "Data type: \(dataType), Patient: \(request.patientID)"
+            )
+            
+            // Append to export data
+            exportData.append(data)
+        }
+        
+        guard !exportData.isEmpty else {
+            throw ExportError.dataNotFound
+        }
+        
+        return exportData
     }
 }
 
@@ -89,18 +107,19 @@ public struct ExportRequest {
     let patientID: String
     let dataTypes: [String]
     let format: ExportFormat
+    let purpose: HIPAAMedicalDataHandler.ExportPurpose
     
-    public init(patientID: String, dataTypes: [String], format: ExportFormat) {
+    public init(patientID: String, dataTypes: [String], format: ExportFormat, purpose: HIPAAMedicalDataHandler.ExportPurpose) {
         self.patientID = patientID
         self.dataTypes = dataTypes
         self.format = format
+        self.purpose = purpose
     }
 }
 
 public enum ExportFormat: String {
     case json = "JSON"
     case pdf = "PDF"
-    case dicom = "DICOM"
 }
 
 public enum ExportError: LocalizedError {
@@ -110,9 +129,12 @@ public enum ExportError: LocalizedError {
     
     public var errorDescription: String? {
         switch self {
-        case .rateLimitExceeded: return "Export rate limit exceeded for today"
-        case .invalidRequest: return "Invalid export request"
-        case .dataNotFound: return "Requested data not found"
+        case .rateLimitExceeded:
+            return "Export rate limit exceeded for today"
+        case .invalidRequest:
+            return "Invalid export request"
+        case .dataNotFound:
+            return "Requested data not found"
         }
     }
 }

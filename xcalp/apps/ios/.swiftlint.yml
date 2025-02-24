@@ -1,0 +1,85 @@
+severity_levels:
+  force_cast: error
+  force_try: error
+  force_unwrapping: error
+  implicitly_unwrapped_optional: error
+  todo: warning
+  trailing_whitespace: warning
+  missing_docs: warning
+
+disabled_rules:
+  - trailing_whitespace  # This is now handled by severity_levels
+  - todo                 # This is now handled by severity_levels
+
+opt_in_rules:
+  - empty_count
+  - missing_docs
+  - force_unwrapping
+  - conditional_returns_on_newline
+  - private_outlet
+  - sorted_imports
+  - closure_spacing
+  - contains_over_first_not_nil
+  - fatal_error_message
+  - implicit_return
+  - redundant_nil_coalescing
+  - vertical_parameter_alignment_on_call
+
+analyzer_rules:
+  - unused_declaration
+  - unused_import
+
+line_length:
+  warning: 120
+  error: 150
+
+type_body_length:
+  warning: 300
+  error: 400
+
+file_length:
+  warning: 500
+  error: 700
+
+function_body_length:
+  warning: 50
+  error: 100
+
+type_name:
+  min_length: 3
+  max_length: 40
+  excluded:
+    - ID
+    - URL
+
+identifier_name:
+  min_length: 2
+  max_length: 40
+  excluded:
+    - id
+    - URL
+    - x
+    - y
+    - up
+    - on
+
+nesting:
+  type_level:
+    warning: 2
+    error: 3
+
+cyclomatic_complexity:
+  warning: 10
+  error: 15
+
+reporter: "xcode"
+
+excluded:
+  - Pods
+  - Carthage
+  - fastlane
+  - vendor
+  - build_logs
+  - "**/*.generated.swift"  # Exclude generated files
+
+autocorrect_max_lines_per_command: 3000

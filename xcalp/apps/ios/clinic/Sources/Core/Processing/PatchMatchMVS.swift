@@ -102,6 +102,6 @@ class PatchMatchMVS {
         // Implement depth map fusion using TSDF or similar
         // ... (Detailed implementation in separate PR)
         
-        return PointCloud()
+        PointCloud()
     }
 }

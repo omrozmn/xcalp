@@ -1,5 +1,5 @@
-import SwiftUI
 import ComposableArchitecture
+import SwiftUI
 
 public struct OfflineModeView: View {
     let store: StoreOf<ProcessingFeature>

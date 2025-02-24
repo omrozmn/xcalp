@@ -1,5 +1,5 @@
-import Foundation
 import CryptoKit
+import Foundation
 
 extension EncryptionCheck {
     private static let minimumKeySize = 256 // bits
@@ -151,7 +151,7 @@ extension HIPAAEncryptionService {
     }
     
     func getEncryptionSettings() throws -> EncryptionSettings {
-        return EncryptionSettings(
+        EncryptionSettings(
             algorithm: "AES-GCM",
             keySize: 256,
             mode: "GCM"
@@ -160,7 +160,7 @@ extension HIPAAEncryptionService {
     
     func getMasterKeyMetadata() throws -> KeyMetadata {
         // Implementation would fetch actual metadata
-        return KeyMetadata(
+        KeyMetadata(
             keySize: 256,
             generationMethod: .secure,
             lastRotationDate: Date().addingTimeInterval(-60 * 24 * 3600) // 60 days ago

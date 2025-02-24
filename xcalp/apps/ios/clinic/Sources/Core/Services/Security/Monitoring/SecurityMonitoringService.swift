@@ -1,5 +1,5 @@
-import Foundation
 import Combine
+import Foundation
 
 public final class SecurityMonitoringService {
     public static let shared = SecurityMonitoringService()

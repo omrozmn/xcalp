@@ -1,5 +1,5 @@
-import SwiftUI
 import Combine
+import SwiftUI
 
 public final class LoadingAnimationManager: ObservableObject {
     public static let shared = LoadingAnimationManager()
@@ -8,6 +8,8 @@ public final class LoadingAnimationManager: ObservableObject {
     @Published public var loadingStyle: LoadingStyle = .default
     @Published public var loadingProgress: Double = 0
     @Published public var loadingMessage: String?
+    @Published public var secondaryMessage: String?
+    @Published public var isInterruptible = false
     
     public enum LoadingStyle {
         case `default`
@@ -15,6 +17,9 @@ public final class LoadingAnimationManager: ObservableObject {
         case indeterminate
         case success
         case error
+        case scanning
+        case processing
+        case analyzing
         case custom(Animation)
         
         var animation: Animation {
@@ -29,76 +34,180 @@ public final class LoadingAnimationManager: ObservableObject {
                 return .spring(response: 0.4, dampingFraction: 0.7)
             case .error:
                 return .spring(response: 0.3, dampingFraction: 0.5)
+            case .scanning:
+                return .easeInOut(duration: 0.8).repeatForever(autoreverses: true)
+            case .processing:
+                return .easeInOut(duration: 1.2).repeatForever(autoreverses: false)
+            case .analyzing:
+                return .spring(response: 0.6, dampingFraction: 0.8)
             case .custom(let animation):
                 return animation
             }
         }
     }
     
-    public func startLoading(style: LoadingStyle = .default, message: String? = nil) {
+    public func startLoading(
+        style: LoadingStyle = .default,
+        message: String? = nil,
+        secondaryMessage: String? = nil,
+        isInterruptible: Bool = false
+    ) {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-            isLoading = true
-            loadingStyle = style
-            loadingMessage = message
-            loadingProgress = 0
+            self.isLoading = true
+            self.loadingStyle = style
+            self.loadingMessage = message
+            self.secondaryMessage = secondaryMessage
+            self.isInterruptible = isInterruptible
+            self.loadingProgress = 0
+        }
+        
+        // Provide haptic feedback based on style
+        switch style {
+        case .scanning:
+            HapticFeedbackManager.shared.playFeedback(.impact(.light))
+        case .processing:
+            HapticFeedbackManager.shared.playFeedback(.impact(.medium))
+        case .analyzing:
+            HapticFeedbackManager.shared.playPattern(HapticFeedbackManager.analysisStartPattern)
+        default:
+            break
         }
     }
     
-    public func updateProgress(_ progress: Double, message: String? = nil) {
+    public func updateProgress(
+        _ progress: Double,
+        message: String? = nil,
+        secondaryMessage: String? = nil
+    ) {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-            loadingProgress = progress
+            self.loadingProgress = progress
+            if let message = message {
+                self.loadingMessage = message
+            }
+            if let secondaryMessage = secondaryMessage {
+                self.secondaryMessage = secondaryMessage
+            }
+        }
+        
+        // Provide progress-based haptic feedback
+        if progress.truncatingRemainder(dividingBy: 0.25) < 0.01 {
+            HapticFeedbackManager.shared.playFeedback(.impact(.light))
+        }
+    }
+    
+    public func stopLoading(
+        withSuccess: Bool = true,
+        message: String? = nil,
+        completion: (() -> Void)? = nil
+    ) {
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+            if withSuccess {
+                loadingStyle = .success
+                HapticFeedbackManager.shared.playFeedback(.success)
+            } else {
+                loadingStyle = .error
+                HapticFeedbackManager.shared.playFeedback(.error)
+            }
+            
             if let message = message {
                 loadingMessage = message
             }
         }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                self.isLoading = false
+                self.loadingProgress = 0
+                self.loadingMessage = nil
+                self.secondaryMessage = nil
+            }
+            completion?()
+        }
     }
     
-    public func stopLoading(completion: (() -> Void)? = nil) {
+    public func interrupt() {
+        guard isInterruptible else { return }
+        
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             isLoading = false
             loadingProgress = 0
             loadingMessage = nil
+            secondaryMessage = nil
         }
-        completion?()
+        
+        HapticFeedbackManager.shared.playFeedback(.impact(.medium))
     }
 }
 
-// Loading overlay view
+// Loading overlay view with enhanced animations
 public struct LoadingOverlay: View {
     @ObservedObject private var manager = LoadingAnimationManager.shared
-    @State private var rotation: Double = 0
     
     public var body: some View {
         Group {
             if manager.isLoading {
                 ZStack {
-                    // Blur background
+                    // Enhanced blur background
                     BlurView(style: .systemMaterial)
                         .ignoresSafeArea()
+                        .opacity(0.9)
                     
                     VStack(spacing: 20) {
-                        switch manager.loadingStyle {
-                        case .default:
-                            defaultLoadingView
-                        case .progress:
-                            progressLoadingView
-                        case .indeterminate:
-                            indeterminateLoadingView
-                        case .success:
-                            successLoadingView
-                        case .error:
-                            errorLoadingView
-                        case .custom:
-                            customLoadingView
+                        Group {
+                            switch manager.loadingStyle {
+                            case .default:
+                                CircularLoadingView(color: .accentColor)
+                            case .progress:
+                                CircularProgressView(progress: manager.loadingProgress)
+                            case .indeterminate:
+                                IndeterminateLoadingView()
+                            case .success:
+                                SuccessCheckmark()
+                            case .error:
+                                ErrorIcon()
+                            case .scanning:
+                                ScanningLoadingView()
+                            case .processing:
+                                ProcessingLoadingView()
+                            case .analyzing:
+                                AnalyzingLoadingView()
+                            case .custom:
+                                CustomLoadingView()
+                            }
                         }
+                        .frame(width: 60, height: 60)
                         
-                        if let message = manager.loadingMessage {
-                            Text(message)
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal)
-                                .transition(.opacity)
+                        VStack(spacing: 8) {
+                            if let message = manager.loadingMessage {
+                                Text(message)
+                                    .font(.headline)
+                                    .foregroundColor(.primary)
+                                    .multilineTextAlignment(.center)
+                            }
+                            
+                            if let secondary = manager.secondaryMessage {
+                                Text(secondary)
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                                    .multilineTextAlignment(.center)
+                            }
+                            
+                            if case .progress = manager.loadingStyle {
+                                Text("\(Int(manager.loadingProgress * 100))%")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .padding(.horizontal)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        
+                        if manager.isInterruptible {
+                            Button("Cancel") {
+                                manager.interrupt()
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(.secondary)
+                            .padding(.top)
                         }
                     }
                     .padding()
@@ -113,36 +222,6 @@ public struct LoadingOverlay: View {
             }
         }
         .animation(manager.loadingStyle.animation, value: manager.isLoading)
-    }
-    
-    private var defaultLoadingView: some View {
-        CircularLoadingView(color: Color(.systemBlue))
-            .frame(width: 50, height: 50)
-    }
-    
-    private var progressLoadingView: some View {
-        CircularProgressView(progress: manager.loadingProgress)
-            .frame(width: 50, height: 50)
-    }
-    
-    private var indeterminateLoadingView: some View {
-        IndeterminateLoadingView()
-            .frame(width: 50, height: 50)
-    }
-    
-    private var successLoadingView: some View {
-        SuccessCheckmark()
-            .frame(width: 50, height: 50)
-    }
-    
-    private var errorLoadingView: some View {
-        ErrorIcon()
-            .frame(width: 50, height: 50)
-    }
-    
-    private var customLoadingView: some View {
-        PulsingLoadingView()
-            .frame(width: 50, height: 50)
     }
 }
 
@@ -275,6 +354,107 @@ private struct PulsingLoadingView: View {
         }
         .onAppear {
             isAnimating = true
+        }
+    }
+}
+
+// New specialized loading animations
+private struct ScanningLoadingView: View {
+    @State private var rotation: Double = 0
+    @State private var scale: CGFloat = 1
+    
+    var body: some View {
+        ZStack {
+            // Scanning frame
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.accentColor, lineWidth: 2)
+                .frame(width: 40, height: 40)
+                .rotationEffect(.degrees(rotation))
+                .scaleEffect(scale)
+                
+            // Scanning line
+            Rectangle()
+                .fill(Color.accentColor)
+                .frame(width: 2, height: 40)
+                .offset(y: -20)
+                .rotationEffect(.degrees(rotation))
+        }
+        .onAppear {
+            withAnimation(.linear(duration: 2).repeatForever(autoreverses: false)) {
+                rotation = 360
+            }
+            withAnimation(.easeInOut(duration: 1).repeatForever(autoreverses: true)) {
+                scale = 0.8
+            }
+        }
+    }
+}
+
+private struct ProcessingLoadingView: View {
+    @State private var phase: CGFloat = 0
+    
+    var body: some View {
+        Canvas { context, size in
+            let rings = 3
+            let strokeWidth: CGFloat = 4
+            
+            for ring in 0..<rings {
+                let scale = 1.0 - (CGFloat(ring) * 0.2)
+                let opacity = 1.0 - (CGFloat(ring) * 0.3)
+                let rotation = phase + (CGFloat(ring) * .pi / 4)
+                
+                context.opacity = opacity
+                context.scaleBy(x: scale, y: scale)
+                context.rotate(by: .radians(Double(rotation)))
+                
+                let rect = CGRect(x: strokeWidth / 2, y: strokeWidth / 2,
+                                width: size.width - strokeWidth,
+                                height: size.height - strokeWidth)
+                
+                context.stroke(
+                    Path(ellipseIn: rect),
+                    with: .color(.accentColor),
+                    lineWidth: strokeWidth
+                )
+            }
+        }
+        .frame(width: 50, height: 50)
+        .onAppear {
+            withAnimation(.linear(duration: 2).repeatForever(autoreverses: false)) {
+                phase = 2 * .pi
+            }
+        }
+    }
+}
+
+private struct AnalyzingLoadingView: View {
+    @State private var progress: CGFloat = 0
+    
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.secondary.opacity(0.2), lineWidth: 4)
+            
+            Circle()
+                .trim(from: 0, to: progress)
+                .stroke(Color.accentColor, style: StrokeStyle(
+                    lineWidth: 4,
+                    lineCap: .round
+                ))
+                .rotationEffect(.degrees(-90))
+            
+            ForEach(0..<3) { index in
+                Circle()
+                    .fill(Color.accentColor)
+                    .frame(width: 8, height: 8)
+                    .offset(y: -20)
+                    .rotationEffect(.degrees(Double(index) * 120 + Double(progress) * 360))
+            }
+        }
+        .onAppear {
+            withAnimation(.linear(duration: 2).repeatForever(autoreverses: false)) {
+                progress = 1
+            }
         }
     }
 }

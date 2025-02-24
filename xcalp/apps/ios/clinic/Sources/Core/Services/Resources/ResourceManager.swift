@@ -143,7 +143,7 @@ public final class ResourceManager {
         timeout: TimeInterval = 5.0
     ) async throws {
         var attempts = 0
-        var lastError: Error? = nil
+        var lastError: Error?
         
         while attempts < retries {
             do {
@@ -190,7 +190,7 @@ public final class ResourceManager {
         // Update history
         updateHistory()
         
-        logger.info("Resources allocated: Memory=\(ByteCountFormatter.string(fromByteCount: Int64(memory), countStyle: .memory)), Storage=\(ByteCountFormatter.string(fromByteCount: Int64(storage), countStyle: .memory)), Bandwidth=\(bandwidth/1024/1024)MB/s")
+        logger.info("Resources allocated: Memory=\(ByteCountFormatter.string(fromByteCount: Int64(memory), countStyle: .memory)), Storage=\(ByteCountFormatter.string(fromByteCount: Int64(storage), countStyle: .memory)), Bandwidth=\(bandwidth / 1024 / 1024)MB/s")
         
         // Schedule cleanup if needed
         if usage.currentMemory > quota.maxMemory * 80 / 100 {  // 80% threshold
@@ -262,7 +262,7 @@ public final class ResourceManager {
         
         updateHistory()
         
-        logger.info("Resources released: Memory=\(ByteCountFormatter.string(fromByteCount: Int64(memory), countStyle: .memory)), Storage=\(ByteCountFormatter.string(fromByteCount: Int64(storage), countStyle: .memory)), Bandwidth=\(bandwidth/1024/1024)MB/s")
+        logger.info("Resources released: Memory=\(ByteCountFormatter.string(fromByteCount: Int64(memory), countStyle: .memory)), Storage=\(ByteCountFormatter.string(fromByteCount: Int64(storage), countStyle: .memory)), Bandwidth=\(bandwidth / 1024 / 1024)MB/s")
     }
     
     /// Clean up unused resources

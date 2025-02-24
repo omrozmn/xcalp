@@ -288,7 +288,7 @@ public final class MeshProcessor {
         let targetCount = Int(Float(vertices.count) * (1 - targetReduction))
         
         // Create quadric error metrics for each vertex
-        var quadrics = vertices.map { vertex -> matrix_float4x4 in
+        var quadrics = vertices.map { _ -> matrix_float4x4 in
             var q = matrix_float4x4.zero
             
             // Calculate quadric from adjacent faces

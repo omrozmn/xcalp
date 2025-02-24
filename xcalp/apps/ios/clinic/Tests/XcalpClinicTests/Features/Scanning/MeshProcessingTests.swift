@@ -1,5 +1,5 @@
-import XCTest
 @testable import XcalpClinic
+import XCTest
 
 final class MeshProcessingTests: XCTestCase {
     var processor: MeshProcessor!

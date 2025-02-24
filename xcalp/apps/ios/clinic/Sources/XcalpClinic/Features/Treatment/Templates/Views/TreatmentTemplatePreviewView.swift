@@ -1,5 +1,5 @@
-import SwiftUI
 import SceneKit
+import SwiftUI
 
 struct TreatmentTemplatePreviewView: View {
     let template: TreatmentTemplate

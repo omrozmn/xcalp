@@ -1,5 +1,5 @@
-import Foundation
 import CoreML
+import Foundation
 
 public struct TemplateAnalyzer {
     public struct ComparisonResult {

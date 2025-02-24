@@ -1,6 +1,6 @@
 import Foundation
-import UIKit
 import os.log
+import UIKit
 
 public enum BackgroundTaskError: Error, LocalizedError {
     case taskExpired
@@ -48,6 +48,22 @@ public struct TaskResources {
     }
 }
 
+public struct BatchOperation {
+    let operations: [(priority: TaskPriority, operation: () async throws -> Void)]
+    let batchSize: Int
+    let completionHandler: ((Int, Int, Error?) -> Void)?
+    
+    public init(
+        operations: [(priority: TaskPriority, operation: () async throws -> Void)],
+        batchSize: Int = 3,
+        completionHandler: ((Int, Int, Error?) -> Void)? = nil
+    ) {
+        self.operations = operations
+        self.batchSize = batchSize
+        self.completionHandler = completionHandler
+    }
+}
+
 @MainActor
 public final class BackgroundTaskManager: ObservableObject {
     public static let shared = BackgroundTaskManager()
@@ -57,9 +73,15 @@ public final class BackgroundTaskManager: ObservableObject {
     private let maxConcurrentTasks = 5
     private let taskPriorityQueue = PriorityQueue<String>()
     private let resourceCheckInterval: TimeInterval = 10 // 10 seconds
+    private let minResourceThreshold: Double = 0.2 // 20%
+    private let maxResourceThreshold: Double = 0.8 // 80%
     
     @Published private(set) var activeTasks: [String: BackgroundTask] = [:]
     @Published private(set) var isProcessing: Bool = false
+    @Published private(set) var resourceUsage: ResourceUsage = .zero
+    
+    private var batchOperations: [String: BatchOperation] = [:]
+    private var currentBatchIndex: [String: Int] = [:]
     
     @Dependency(\.resourceClient) var resourceClient
     
@@ -81,18 +103,40 @@ public final class BackgroundTaskManager: ObservableObject {
         let usage = resourceClient.currentUsage()
         let quota = resourceClient.quotaLimits()
         
-        // Check memory pressure
-        if usage.currentMemory > quota.maxMemory * 80 / 100 {
-            // High memory usage - suspend low priority tasks
+        resourceUsage = usage
+        
+        // Memory pressure handling
+        let memoryUtilization = Double(usage.currentMemory) / Double(quota.maxMemory)
+        if memoryUtilization > maxResourceThreshold {
+            // High memory - suspend low priority tasks
             for taskId in tasks(withPriority: .low) {
                 await suspendTask(taskId)
             }
+        } else if memoryUtilization < minResourceThreshold {
+            // Low memory - resume suspended tasks
+            await resumeSuspendedTasks()
+            await processQueuedTasks()
         }
         
-        // Resume suspended tasks if resources available
-        if usage.currentMemory < quota.maxMemory * 60 / 100 {
-            await resumeSuspendedTasks()
+        // Storage optimization
+        if Double(usage.currentStorage) / Double(quota.maxStorage) > maxResourceThreshold {
+            await optimizeStorage()
         }
+        
+        // Network bandwidth management
+        if Double(usage.currentBandwidth) / Double(quota.maxBandwidth) > maxResourceThreshold {
+            await throttleNetworkTasks()
+        }
+    }
+    
+    private func optimizeStorage() async {
+        logger.info("Optimizing storage usage")
+        // Implement storage optimization logic here
+    }
+    
+    private func throttleNetworkTasks() async {
+        logger.info("Throttling network-intensive tasks")
+        // Implement network task throttling logic here
     }
     
     private func suspendTask(_ identifier: String) async {
@@ -235,6 +279,60 @@ public final class BackgroundTaskManager: ObservableObject {
     /// - Returns: Array of task identifiers sorted by priority (highest first)
     public func tasksSortedByPriority() -> [String] {
         activeTasks.sorted { $0.value.priority > $1.value.priority }.map { $0.key }
+    }
+    
+    public func executeBatch(
+        _ batch: BatchOperation,
+        name: String
+    ) async throws {
+        batchOperations[name] = batch
+        currentBatchIndex[name] = 0
+        
+        let totalOperations = batch.operations.count
+        var completedOperations = 0
+        var batchError: Error?
+        
+        while currentBatchIndex[name] ?? 0 < totalOperations {
+            let startIndex = currentBatchIndex[name] ?? 0
+            let endIndex = min(startIndex + batch.batchSize, totalOperations)
+            let currentBatch = Array(batch.operations[startIndex..<endIndex])
+            
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for (index, operation) in currentBatch.enumerated() {
+                    group.addTask {
+                        let taskName = "\(name)_\(startIndex + index)"
+                        try await self.beginTask(
+                            name: taskName,
+                            priority: operation.priority,
+                            resources: TaskResources(memory: 50_000_000, storage: 10_000_000, bandwidth: 1_000_000),
+                            operation: operation.operation
+                        )
+                    }
+                }
+                
+                do {
+                    try await group.waitForAll()
+                    completedOperations += currentBatch.count
+                } catch {
+                    batchError = error
+                    logger.error("Batch operation failed: \(error.localizedDescription)")
+                }
+            }
+            
+            currentBatchIndex[name] = endIndex
+            batch.completionHandler?(completedOperations, totalOperations, batchError)
+            
+            if batchError != nil {
+                break
+            }
+        }
+        
+        batchOperations.removeValue(forKey: name)
+        currentBatchIndex.removeValue(forKey: name)
+        
+        if let error = batchError {
+            throw error
+        }
     }
 }
 

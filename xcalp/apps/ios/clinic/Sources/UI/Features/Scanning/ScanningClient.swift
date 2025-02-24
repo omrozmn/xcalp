@@ -1,10 +1,10 @@
-import Foundation
-import Dependencies
 import ARKit
-import RealityKit
 import Combine
-import os.log
+import Dependencies
+import Foundation
 import Metal
+import os.log
+import RealityKit
 
 private let logger = Logger(subsystem: "com.xcalp.clinic", category: "scanning")
 private let meshProcessor = try! MeshProcessor()

@@ -1,6 +1,6 @@
-import Foundation
 import CryptoKit
 import Dependencies
+import Foundation
 
 public final class KeyRotationManager {
     public static let shared = KeyRotationManager()
@@ -95,7 +95,7 @@ public final class KeyRotationManager {
     private func getAllEncryptedData() async throws -> [EncryptedData] {
         // Implementation would fetch all encrypted data from storage
         // This is a placeholder that would need to be implemented based on your storage structure
-        return []
+        []
     }
     
     private func storeNewMasterKey(_ key: SymmetricKey) throws {

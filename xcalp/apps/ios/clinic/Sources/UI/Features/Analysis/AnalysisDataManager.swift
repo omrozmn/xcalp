@@ -1,5 +1,5 @@
-import Foundation
 import ComposableArchitecture
+import Foundation
 
 public struct AnalysisDataManager {
     private let hipaaHandler = HIPAAMedicalDataHandler.shared

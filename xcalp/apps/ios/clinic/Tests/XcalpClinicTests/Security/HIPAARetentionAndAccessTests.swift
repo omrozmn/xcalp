@@ -1,6 +1,6 @@
-import XCTest
 import CryptoKit
 @testable import XcalpClinicCore
+import XCTest
 
 final class HIPAARetentionAndAccessTests: XCTestCase {
     // MARK: - Data Retention Tests

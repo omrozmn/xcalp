@@ -1,5 +1,5 @@
-import SwiftUI
 import ComposableArchitecture
+import SwiftUI
 
 public struct AnalysisView: View {
     let store: StoreOf<AnalysisFeature>

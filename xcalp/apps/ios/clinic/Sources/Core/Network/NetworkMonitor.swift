@@ -1,7 +1,7 @@
+import Combine
 import Foundation
 import Network
 import os.log
-import Combine
 
 public enum NetworkStatus: String {
     case connected
@@ -28,15 +28,15 @@ public final class NetworkMonitor: ObservableObject {
     // Network quality metrics
     private var latencyHistory: [TimeInterval] = []
     private var throughputHistory: [Double] = []
-    private let maxHistoryItems = 10
+    private let maxHistoryItems = 50
     
     public var averageLatency: TimeInterval {
-        guard !latencyHistory.isEmpty else { return 0 }
+        guard !latencyHistory.isEmpty else { return 1.0 }
         return latencyHistory.reduce(0, +) / Double(latencyHistory.count)
     }
     
     public var averageThroughput: Double {
-        guard !throughputHistory.isEmpty else { return 0 }
+        guard !throughputHistory.isEmpty else { return 0.0 }
         return throughputHistory.reduce(0, +) / Double(throughputHistory.count)
     }
     

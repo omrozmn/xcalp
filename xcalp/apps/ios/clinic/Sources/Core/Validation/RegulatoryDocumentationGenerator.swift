@@ -278,7 +278,7 @@ class RegulatoryDocumentationGenerator {
     
     private func validateDocument(_ document: Document, against requirement: DocumentationRequirement) -> Bool {
         // Implement document validation against requirements
-        return true // Placeholder
+        true // Placeholder
     }
 }
 
@@ -287,46 +287,46 @@ class RegulatoryDocumentationGenerator {
 extension RegulatoryDocumentationGenerator {
     private func generateClinicalTrialSummary(_ trials: [ClinicalTrialManager.TrialData]) async throws -> String {
         // Generate clinical trial summary section
-        return "" // Placeholder
+        "" // Placeholder
     }
     
     private func generateTechnicalValidationSummary(_ reports: [ValidationReport]) async throws -> String {
         // Generate technical validation summary section
-        return "" // Placeholder
+        "" // Placeholder
     }
     
     private func generateQualityMetricsSummary(_ reports: [QualityReport]) async throws -> String {
         // Generate quality metrics summary section
-        return "" // Placeholder
+        "" // Placeholder
     }
     
     private func generateDesignControls(_ data: ValidationData) async throws -> String {
         // Generate design controls section
-        return "" // Placeholder
+        "" // Placeholder
     }
     
     private func generateRiskManagement(_ data: ValidationData) async throws -> String {
         // Generate risk management section
-        return "" // Placeholder
+        "" // Placeholder
     }
     
     private func generateTechnicalRequirements(_ data: ValidationData) async throws -> String {
         // Generate technical requirements section
-        return "" // Placeholder
+        "" // Placeholder
     }
     
     private func generateClinicalEvaluation(_ data: ValidationData) async throws -> String {
         // Generate clinical evaluation section
-        return "" // Placeholder
+        "" // Placeholder
     }
     
     private func generatePrivacyControls(_ data: ValidationData) async throws -> String {
         // Generate privacy controls section
-        return "" // Placeholder
+        "" // Placeholder
     }
     
     private func generateSecurityMeasures(_ data: ValidationData) async throws -> String {
         // Generate security measures section
-        return "" // Placeholder
+        "" // Placeholder
     }
 }

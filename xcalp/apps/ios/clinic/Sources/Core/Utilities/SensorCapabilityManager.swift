@@ -17,7 +17,7 @@ class SensorCapabilityManager {
     }
     
     static func isScanningSupported() -> Bool {
-        return getScannerType() != .none
+        getScannerType() != .none
     }
     
     static func getMinimumQualityThreshold(for scannerType: ScannerType) -> Float {

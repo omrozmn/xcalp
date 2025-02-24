@@ -1,5 +1,5 @@
-import XCTest
 @testable import XcalpClinic
+import XCTest
 
 final class AnalysisPerformanceTests: XCTestCase {
     var analyzer: GraftPlacementAnalyzer!

@@ -1,6 +1,6 @@
+import Combine
 import Foundation
 import UIKit
-import Combine
 
 /// Manages user session and authentication state
 public final class SessionManager {
@@ -179,7 +179,7 @@ public final class SessionManager {
     }
     
     private func isSessionValid(_ session: Session) -> Bool {
-        return Date().timeIntervalSince(session.createdAt) < sessionTimeout
+        Date().timeIntervalSince(session.createdAt) < sessionTimeout
     }
     
     private func handleSessionTimeout() {

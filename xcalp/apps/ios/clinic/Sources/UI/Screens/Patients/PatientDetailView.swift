@@ -1,5 +1,5 @@
-import SwiftUI
 import ComposableArchitecture
+import SwiftUI
 
 public struct PatientDetailView: View {
     let store: StoreOf<PatientDetailFeature>

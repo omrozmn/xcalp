@@ -1,5 +1,5 @@
-import Foundation
 import ARKit
+import Foundation
 
 class QualityAssurance {
     // Confidence thresholds based on Wiley IET Research
@@ -26,7 +26,7 @@ class QualityAssurance {
     
     func validatePhotogrammetryData(_ data: PhotogrammetryData) -> Bool {
         // Validate based on ScienceDirect research requirements
-        guard data.features.count >= ClinicalConstants.minPhotogrammetryFeatures else {
+        guard data.features.count >= AppConfig.minPhotogrammetryFeatures else {
             return false
         }
         

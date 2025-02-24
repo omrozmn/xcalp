@@ -1,7 +1,7 @@
-import SwiftUI
-import SceneKit
 import ARKit
+import SceneKit
 import simd
+import SwiftUI
 
 public final class MeshManipulationManager: ObservableObject {
     public static let shared = MeshManipulationManager()
@@ -259,7 +259,7 @@ public final class MeshManipulationManager: ObservableObject {
     private func getNeighboringVertices(for vertexIndex: Int, in meshNode: SCNNode) -> [Int] {
         // TODO: Implement proper vertex connectivity
         // Currently returning empty array as placeholder
-        return []
+        []
     }
 }
 

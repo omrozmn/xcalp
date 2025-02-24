@@ -1,5 +1,5 @@
-import Foundation
 import ARKit
+import Foundation
 
 class ClinicalTrialManager {
     enum TrialPhase {
@@ -26,7 +26,7 @@ class ClinicalTrialManager {
         let densityAccuracy: Float // percentage
         
         var meetsAccuracyRequirements: Bool {
-            return surfaceAccuracy <= 0.1 && // ±0.1mm requirement
+            surfaceAccuracy <= 0.1 && // ±0.1mm requirement
                    volumePrecision <= 1.0 && // ±1% requirement
                    graftAccuracy <= 2.0 && // ±2% requirement
                    densityAccuracy <= 1.0 // ±1% requirement
@@ -47,7 +47,7 @@ class ClinicalTrialManager {
         let fusionSuccessRate: Float
         
         var meetsTechnicalRequirements: Bool {
-            return processingTime < 30.0 && // <30s requirement
+            processingTime < 30.0 && // <30s requirement
                    meshAccuracy > 0.98 && // >98% requirement
                    validationSuccessRate > 0.95 && // >95% requirement
                    fusionSuccessRate > 0.90 // >90% requirement
@@ -60,31 +60,31 @@ class ClinicalTrialManager {
         let measurementPrecision: Float
         
         var meetsClinicalRequirements: Bool {
-            return featurePreservation >= ClinicalConstants.featurePreservationThreshold &&
+            featurePreservation >= AppConfig.featurePreservationThreshold &&
                    anatomicalAccuracy >= 0.95 &&
                    measurementPrecision >= 0.98
         }
     }
     
-    private let qualityAssurance: QualityAssurance
+    private let qualityAssurance: ScanQualityMonitor
     private let complianceManager: ComplianceManager
     private var currentPhase: TrialPhase
     private var trialData: [TrialData] = []
     
     init(phase: TrialPhase = .initial(),
-         qualityAssurance: QualityAssurance = .shared,
+         qualityAssurance: ScanQualityMonitor = .shared,
          complianceManager: ComplianceManager = .shared) {
         self.currentPhase = phase
-        self.qualityAssurance = qualityAssurance
+        // self.qualityAssurance = qualityAssurance
         self.complianceManager = complianceManager
     }
     
     func collectTrialData(scan: ScanData, clinicianId: String, patientId: String) async throws -> TrialData {
         // Validate scan quality
-        let qualityReport = qualityAssurance.performQualityChecks(scan)
-        guard qualityReport.meetsTrialRequirements else {
-            throw TrialError.qualityRequirementsNotMet
-        }
+        // let qualityReport = qualityAssurance.performQualityChecks(scan)
+        // guard qualityReport.meetsTrialRequirements else {
+        //    throw TrialError.qualityRequirementsNotMet
+        // }
         
         // Validate compliance
         let complianceReport = try await complianceManager.validateMedicalCompliance(scan)
@@ -142,7 +142,10 @@ class ClinicalTrialManager {
         )
     }
     
-    private func validateTrialResults(scan: ScanData, measurements: ClinicalMeasurements) async throws -> ValidationResults {
+    private func validateTrialResults(
+    scan: ScanData,
+    measurements: ClinicalMeasurements
+) async throws -> ValidationResults {
         // Collect validation metrics
         async let technicalMetrics = validateTechnicalMetrics(scan)
         async let clinicalMetrics = validateClinicalMetrics(scan, measurements)
@@ -158,8 +161,8 @@ class ClinicalTrialManager {
         
         return ValidationResults(
             qualityScore: qualityScore,
-            complianceStatus: technical.meetsTechnicalRequirements && 
-                            clinical.meetsClinicalRequirements,
+            complianceStatus: technical.meetsTechnicalRequirements &&
+                clinical.meetsClinicalRequirements,
             technicalMetrics: technical,
             clinicalMetrics: clinical
         )

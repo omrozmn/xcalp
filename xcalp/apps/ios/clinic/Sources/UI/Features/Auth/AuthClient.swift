@@ -1,8 +1,9 @@
-import Foundation
+import Core
+import CoreImage
 import Dependencies
-import LocalAuthentication
+import Foundation
 import KeychainAccess
-
+import LocalAuthentication
 public struct AuthClient {
     public var login: @Sendable (String, String) async throws -> AuthResponse
     public var verifyMFA: @Sendable (String) async throws -> AuthResponse
@@ -12,8 +13,10 @@ public struct AuthClient {
     public var hasSavedCredentials: @Sendable () async throws -> Bool
     public var requestPasswordReset: @Sendable (String) async throws -> String
     public var resetPassword: @Sendable (String, String) async throws -> Bool
-    public var setupMFA: @Sendable (MFAType) async throws -> String
+    public var setupMFA: @Sendable (MFAType) async throws -> MFASetupResponse
     public var verifyAndEnableMFA: @Sendable (String) async throws -> Bool
+    public var generateQRCode: @Sendable (String) throws -> CIImage
+    public var generateNewRecoveryCodes: @Sendable () async throws -> [String]
     
     public static let liveValue = Self.live
     
@@ -25,14 +28,12 @@ public struct AuthClient {
                 throw AuthError.tooManyAttempts
             }
             
-            // In a real app, this would make an API call
             try await Task.sleep(nanoseconds: 1_000_000_000)
             
             guard !username.isEmpty, !password.isEmpty else {
                 throw AuthError.loginFailed(NSError(domain: "com.xcalp.clinic", code: -1))
             }
             
-            // Check if MFA is required
             if let mfaConfig = try? await MFAManager.shared.getMFAConfig(for: username),
                mfaConfig.enabled {
                 return AuthResponse(
@@ -55,8 +56,10 @@ public struct AuthClient {
             )
         },
         verifyMFA: { code in
-            // In a real app, this would verify with the server
             try await Task.sleep(nanoseconds: 1_000_000_000)
+            
+            let userID = UserSession.shared.currentUserId
+            try await MFAManager.shared.verifyMFA(code: code, for: userID)
             
             return AuthResponse(
                 token: UUID().uuidString,
@@ -87,21 +90,54 @@ public struct AuthClient {
             let keychain = Keychain(service: "com.xcalp.clinic")
             return try keychain.contains("credentials")
         },
-        requestPasswordReset: { email in
-            // In a real app, this would send an email
-            try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second delay
-            return UUID().uuidString // Simulated reset token
+        requestPasswordReset: { _ in
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+            return UUID().uuidString
         },
-        resetPassword: { token, newPassword in
-            // In a real app, this would validate token and update password
-            try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second delay
+        resetPassword: { _, _ in
+            try await Task.sleep(nanoseconds: 1_000_000_000)
             return true
         },
         setupMFA: { type in
-            try await MFAManager.shared.setupMFA(type: type, for: UserSession.shared.currentUserId)
+            let userID = UserSession.shared.currentUserId
+            let result = try await MFAManager.shared.setupMFA(type: type, for: userID)
+            
+            let issuer = "XcalpClinic"
+            let accountName = userID
+            let encodedIssuer = issuer.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? issuer
+            let encodedAccount = accountName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? accountName
+            
+            let otpAuthURL = "otpauth://totp/\(encodedIssuer):\(encodedAccount)?secret=\(result.secret)&issuer=\(encodedIssuer)"
+            
+            return MFASetupResponse(
+                secret: result.secret,
+                otpAuthURL: otpAuthURL,
+                recoveryCodes: result.recoveryCodes
+            )
         },
         verifyAndEnableMFA: { code in
-            try await MFAManager.shared.verifyAndEnableMFA(code: code, for: UserSession.shared.currentUserId)
+            let userID = UserSession.shared.currentUserId
+            try await MFAManager.shared.verifyAndEnableMFA(code: code, for: userID)
+            return true
+        },
+        generateQRCode: { otpAuthURL in
+            guard let filter = CIFilter(name: "CIQRCodeGenerator") else {
+                throw AuthError.qrCodeGenerationFailed
+            }
+            
+            let data = Data(otpAuthURL.utf8)
+            filter.setValue(data, forKey: "inputMessage")
+            filter.setValue("H", forKey: "inputCorrectionLevel")
+            
+            guard let outputImage = filter.outputImage else {
+                throw AuthError.qrCodeGenerationFailed
+            }
+            
+            return outputImage
+        },
+        generateNewRecoveryCodes: {
+            let userID = UserSession.shared.currentUserId
+            return try await MFAManager.shared.generateNewRecoveryCodes(for: userID)
         }
     )
     
@@ -132,8 +168,20 @@ public struct AuthClient {
         hasSavedCredentials: { true },
         requestPasswordReset: { _ in "test-token" },
         resetPassword: { _, _ in true },
-        setupMFA: { _ in "test-mfa-setup" },
-        verifyAndEnableMFA: { _ in true }
+        setupMFA: { _ in
+            MFASetupResponse(
+                secret: "test-secret",
+                otpAuthURL: "otpauth://totp/Test:test@example.com?secret=test-secret&issuer=Test",
+                recoveryCodes: ["1234567890"]
+            )
+        },
+        verifyAndEnableMFA: { _ in true },
+        generateQRCode: { _ in
+            CIFilter(name: "CIQRCodeGenerator")!.outputImage!
+        },
+        generateNewRecoveryCodes: {
+            ["1234567890"]
+        }
     )
 }
 
@@ -145,6 +193,12 @@ public struct AuthResponse: Equatable {
     public let mfaPendingID: String?
 }
 
+public struct MFASetupResponse: Equatable {
+    public let secret: String
+    public let otpAuthURL: String
+    public let recoveryCodes: [String]
+}
+
 public enum AuthError: Error, Equatable {
     case loginFailed(Error)
     case biometricAuthFailed
@@ -153,6 +207,7 @@ public enum AuthError: Error, Equatable {
     case tooManyAttempts
     case mfaRequired
     case mfaFailed
+    case qrCodeGenerationFailed
     
     public static func == (lhs: AuthError, rhs: AuthError) -> Bool {
         String(describing: lhs) == String(describing: rhs)

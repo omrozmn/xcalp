@@ -43,21 +43,21 @@ class TransitionOptimizer {
     
     private func selectFramesForLidarToPhoto(_ frames: [ScanFrame]) -> [ScanFrame] {
         // Prioritize frames with good feature matching
-        return frames.filter { frame in
+        frames.filter { frame in
             frame.photoQuality > ScanningQualityThresholds.minimumPhotogrammetryConfidence
         }
     }
     
     private func selectFramesForPhotoToLidar(_ frames: [ScanFrame]) -> [ScanFrame] {
         // Prioritize frames with good depth consistency
-        return frames.filter { frame in
+        frames.filter { frame in
             frame.lidarQuality > ScanningQualityThresholds.minimumLidarConfidence
         }
     }
     
     private func selectFramesForFusion(_ frames: [ScanFrame]) -> [ScanFrame] {
         // Select frames with good quality in both modalities
-        return frames.filter { frame in
+        frames.filter { frame in
             frame.lidarQuality > ScanningQualityThresholds.minimumLidarConfidence &&
             frame.photoQuality > ScanningQualityThresholds.minimumPhotogrammetryConfidence
         }
@@ -92,6 +92,6 @@ struct ScanFrame {
     let timestamp: Date
     
     var quality: Float {
-        return (lidarQuality + photoQuality) / 2.0
+        (lidarQuality + photoQuality) / 2.0
     }
 }

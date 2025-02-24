@@ -1,7 +1,7 @@
 import Foundation
 import MetalKit
-import os.signpost
 import os.log
+import os.signpost
 #if canImport(QuartzCore)
 import QuartzCore
 #endif
@@ -138,7 +138,7 @@ public final class PerformanceMonitor: ObservableObject {
     
     private func getSignpostInterval(for name: String, id: OSSignpostID) -> TimeInterval? {
         // Get interval from signpost if available
-        return 0.5 // Placeholder - actual implementation would use OSSignpostIntervalState
+        0.5 // Placeholder - actual implementation would use OSSignpostIntervalState
     }
     
     private func updateMetrics(name: String, duration: TimeInterval) {
@@ -178,7 +178,7 @@ public final class PerformanceMonitor: ObservableObject {
     
     private func updateMemoryUsage() {
         var info = mach_task_basic_info()
-        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size)/4
+        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
         
         let kerr: kern_return_t = withUnsafeMutablePointer(to: &info) {
             $0.withMemoryRebound(to: integer_t.self, capacity: 1) {

@@ -1,5 +1,5 @@
-import Foundation
 import ComposableArchitecture
+import Foundation
 
 public struct SettingsFeature: Reducer {
     public struct State: Equatable {

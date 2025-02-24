@@ -1,5 +1,5 @@
-import Foundation
 import CoreImage
+import Foundation
 import Metal
 
 class MVSProcessor {

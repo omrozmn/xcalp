@@ -1,5 +1,5 @@
-import Foundation
 import CoreData
+import Foundation
 
 public enum StorageError: Error {
     case saveFailed
@@ -24,7 +24,7 @@ public final class StorageManager {
         storeDescription?.setOption(FileProtectionType.complete as NSObject,
                                   forKey: NSPersistentStoreFileProtectionKey)
         
-        container.loadPersistentStores { [weak self] description, error in
+        container.loadPersistentStores { [weak self] _, error in
             if let error = error {
                 self?.logger.log(.error, message: "Failed to load Core Data stack: \(error.localizedDescription)")
                 fatalError("Failed to load Core Data stack: \(error)")

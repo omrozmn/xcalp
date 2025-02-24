@@ -1,6 +1,6 @@
-import Foundation
 import CryptoKit
 import Dependencies
+import Foundation
 
 public final class RealAuditService: AuditService {
     public static let shared: AuditService = RealAuditService()
@@ -190,7 +190,7 @@ enum AuditServiceError: LocalizedError {
 
 extension AuditEntry {
     func updateHash(_ hash: Data) -> AuditEntry {
-        return AuditEntry(
+        AuditEntry(
             id: id,
             timestamp: timestamp,
             userId: userId,

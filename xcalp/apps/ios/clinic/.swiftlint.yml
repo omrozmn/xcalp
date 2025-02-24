@@ -1,31 +1,34 @@
 disabled_rules:
   - trailing_whitespace
-  - multiple_closures_with_trailing_closure
-
-opt_in_rules:
-  - empty_count
-  - empty_string
-  - closure_spacing
-  - contains_over_first_not_nil
-  - fatal_error_message
-  - force_unwrapping
-  - implicitly_unwrapped_optional
-  - legacy_random
-  - let_var_whitespace
-  - literal_expression_end_indentation
-  - multiline_arguments
-  - multiline_parameters
-  - operator_usage_whitespace
-  - overridden_super_call
-  - pattern_matching_keywords
-  - prefer_self_type_over_type_of_self
-  - redundant_nil_coalescing
-  - strict_fileprivate
-  - toggle_bool
-  - unneeded_parentheses_in_closure_argument
-  - vertical_parameter_alignment_on_call
   - vertical_whitespace_closing_braces
   - vertical_whitespace_opening_braces
+
+opt_in_rules:
+  - array_init
+  - closure_end_indentation
+  - closure_spacing
+  - collection_alignment
+  - contains_over_first_not_nil
+  - empty_count
+  - empty_string
+  - explicit_init
+  - fatal_error_message
+  - first_where
+  - force_unwrapping
+  - implicit_return
+  - multiline_parameters
+  - object_literal
+  - operator_usage_whitespace
+  - overridden_super_call
+  - private_outlet
+  - prohibited_super_call
+  - quick_discouraged_focused_test
+  - quick_discouraged_pending_test
+  - redundant_nil_coalescing
+  - sorted_imports
+  - untyped_error_in_catch
+  - vertical_parameter_alignment_on_call
+  - yoda_condition
 
 analyzer_rules:
   - unused_declaration
@@ -36,12 +39,19 @@ included:
   - Tests
 
 excluded:
-  - "**/*.generated.swift"
+  - Pods
   - .build
+  - DerivedData
+  - fastlane
+  - Scripts
+  - vendor
+  - build_logs
 
 line_length:
-  warning: 120
+  warning: 150
   error: 200
+  ignores_comments: true
+  ignores_urls: true
 
 type_body_length:
   warning: 300
@@ -49,7 +59,7 @@ type_body_length:
 
 file_length:
   warning: 500
-  error: 1000
+  error: 800
 
 function_body_length:
   warning: 50
@@ -57,17 +67,49 @@ function_body_length:
 
 type_name:
   min_length: 3
-  max_length: 40
+  max_length:
+    warning: 50
+    error: 60
 
 identifier_name:
   min_length: 2
-  max_length: 40
+  max_length:
+    warning: 40
+    error: 50
+  excluded:
+    - id
+    - i
+    - j
+    - k
+    - x
+    - y
+    - z
+
+function_parameter_count:
+  warning: 6
+  error: 8
 
 nesting:
-  type_level: 2
+  type_level:
+    warning: 3
+  statement_level:
+    warning: 5
 
 cyclomatic_complexity:
-  warning: 10
-  error: 20
+  warning: 15
+  error: 25
+
+custom_rules:
+  comments_space:
+    name: "Space After Comment"
+    regex: '//\S'
+    message: "There should be a space after //"
+    severity: warning
+
+  empty_first_line:
+    name: "Empty First Line"
+    regex: '(?<=\n)[ \t]*(?:protocol|extension|class|struct|enum)[ \t]+[^\{]*\{(?:\r|\n|\r\n)*[ \t]*[^\r\n\}]'
+    message: "There should be an empty line after a declaration"
+    severity: warning
 
 reporter: "xcode"

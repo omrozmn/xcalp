@@ -1,5 +1,5 @@
-import Foundation
 import Compression
+import Foundation
 import os.log
 
 public enum CompressionError: Error, LocalizedError {

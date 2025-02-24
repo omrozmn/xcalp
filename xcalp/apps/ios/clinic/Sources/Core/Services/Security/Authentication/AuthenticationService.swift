@@ -1,7 +1,7 @@
+import Combine
+import CryptoKit
 import Foundation
 import LocalAuthentication
-import CryptoKit
-import Combine
 
 public final class AuthenticationService {
     public static let shared = AuthenticationService()

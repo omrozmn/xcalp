@@ -12,6 +12,6 @@ public class OfflineOperationEntity: NSManagedObject {
 
 extension OfflineOperationEntity {
     @nonobjc public class func fetchRequest() -> NSFetchRequest<OfflineOperationEntity> {
-        return NSFetchRequest<OfflineOperationEntity>(entityName: "OfflineOperationEntity")
+        NSFetchRequest<OfflineOperationEntity>(entityName: "OfflineOperationEntity")
     }
 }

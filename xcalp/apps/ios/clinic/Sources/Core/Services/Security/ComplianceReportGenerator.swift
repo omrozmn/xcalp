@@ -80,17 +80,17 @@ public final class ComplianceReportGenerator {
     
     private func gatherAuditEvents(from: Date, to: Date) async -> [AuditEvent] {
         // Implementation would fetch audit events for the period
-        return []
+        []
     }
     
     private func gatherViolations(from: Date, to: Date) async -> [ComplianceViolation] {
         // Implementation would fetch compliance violations
-        return []
+        []
     }
     
     private func calculateAccessStatistics(from: Date, to: Date) async -> AccessStatistics {
         // Implementation would calculate access statistics
-        return AccessStatistics()
+        AccessStatistics()
     }
     
     private func storeReport(_ report: ComplianceReport) async throws {

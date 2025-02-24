@@ -1,6 +1,6 @@
-import Foundation
-import CoreData
 import Combine
+import CoreData
+import Foundation
 
 /// Manages data synchronization between local storage and server
 public final class SyncManager {
@@ -114,17 +114,17 @@ public final class SyncManager {
     
     private func getLastSyncTimestamp(for type: SyncType) async throws -> Date {
         // Implementation would fetch from secure storage
-        return Date(timeIntervalSinceNow: -86400) // Placeholder: 24 hours ago
+        Date(timeIntervalSinceNow: -86400) // Placeholder: 24 hours ago
     }
     
     private func getLocalChanges(type: SyncType, since timestamp: Date) async throws -> [SyncChange] {
         // Implementation would fetch from Core Data
-        return [] // Placeholder
+        [] // Placeholder
     }
     
     private func getRemoteChanges(type: SyncType, since timestamp: Date) async throws -> [SyncChange] {
         // Implementation would fetch from server
-        return [] // Placeholder
+        [] // Placeholder
     }
     
     private func resolveConflicts(
@@ -133,7 +133,7 @@ public final class SyncManager {
         type: SyncType
     ) async throws -> [SyncChange] {
         // Implementation would use conflict resolution strategy
-        return [] // Placeholder
+        [] // Placeholder
     }
     
     private func applyChanges(_ changes: [SyncChange], type: SyncType) async throws {

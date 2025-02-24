@@ -4,12 +4,12 @@ import SwiftUI
 public enum LayoutHelper {
     /// Returns the layout direction for the current locale
     public static var layoutDirection: LayoutDirection {
-        return Locale.current.languageCode?.matches(pattern: "^(ar|fa|he|ur).*$") == true ? .rightToLeft : .leftToRight
+        Locale.current.languageCode?.matches(pattern: "^(ar|fa|he|ur).*$") == true ? .rightToLeft : .leftToRight
     }
     
     /// Returns true if the current layout direction is right-to-left
     public static var isRTL: Bool {
-        return layoutDirection == .rightToLeft
+        layoutDirection == .rightToLeft
     }
     
     /// Scales a given value based on dynamic type size

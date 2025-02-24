@@ -1,6 +1,6 @@
-import Foundation
-import ComposableArchitecture
 import ARKit
+import ComposableArchitecture
+import Foundation
 import RealityKit
 
 public struct ScanningFeature: Reducer {

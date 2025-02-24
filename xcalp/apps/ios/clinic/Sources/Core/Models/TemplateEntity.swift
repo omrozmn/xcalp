@@ -17,6 +17,6 @@ public class TemplateEntity: NSManagedObject {
 
 extension TemplateEntity {
     @nonobjc public class func fetchRequest() -> NSFetchRequest<TemplateEntity> {
-        return NSFetchRequest<TemplateEntity>(entityName: "TemplateEntity")
+        NSFetchRequest<TemplateEntity>(entityName: "TemplateEntity")
     }
 }

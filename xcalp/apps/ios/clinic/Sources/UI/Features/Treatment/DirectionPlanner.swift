@@ -1,7 +1,7 @@
+import CoreImage
 import Foundation
 import simd
 import Vision
-import CoreImage
 
 public final class DirectionPlanner {
     private let directionAnalyzer: DirectionAnalyzer

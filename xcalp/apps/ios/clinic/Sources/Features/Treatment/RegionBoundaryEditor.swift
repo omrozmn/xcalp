@@ -1,6 +1,6 @@
-import SwiftUI
-import SceneKit
 import ARKit
+import SceneKit
+import SwiftUI
 
 struct RegionBoundaryEditor: View {
     @Binding var boundaries: [Point3D]
@@ -115,9 +115,9 @@ if let modelURL = modelURL {
                 
                 // Center the model
                 modelNode.position = SCNVector3(
-                    -(min.x + extents.x/2) * scale,
-                    -(min.y + extents.y/2) * scale,
-                    -(min.z + extents.z/2) * scale
+                    -(min.x + extents.x / 2) * scale,
+                    -(min.y + extents.y / 2) * scale,
+                    -(min.z + extents.z / 2) * scale
                 )
                 
                 scene.rootNode.addChildNode(modelNode)

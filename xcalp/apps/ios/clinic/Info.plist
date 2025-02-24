@@ -39,6 +39,7 @@
 		<string>armv7</string>
 		<string>arkit</string>
 		<string>metal</string>
+		<string>arm64</string>
 	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
@@ -67,5 +68,9 @@
 	<true/>
 	<key>UIAccessibilityIsReduceMotionEnabled</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>This app requires camera access for 3D scanning and mesh generation.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>This app requires location access for AR session world tracking.</string>
 </dict>
 </plist>

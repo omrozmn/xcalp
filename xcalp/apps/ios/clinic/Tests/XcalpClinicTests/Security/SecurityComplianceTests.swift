@@ -1,6 +1,6 @@
-import XCTest
 import ComposableArchitecture
 @testable import XcalpClinic
+import XCTest
 
 final class SecurityComplianceTests: XCTestCase {
     func testMedicalDataHandling() async throws {

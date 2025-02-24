@@ -1,4 +1,3 @@
-import UIKit
 import CoreHaptics
 
 public final class HapticFeedbackManager {
@@ -168,6 +167,24 @@ extension HapticFeedbackManager {
     public static let templateSelectionPattern: [HapticEvent] = [
         HapticEvent(type: .transient, intensity: 0.6, sharpness: 0.4, relativeTime: 0),
         HapticEvent(type: .transient, intensity: 0.8, sharpness: 0.6, relativeTime: 0.15)
+    ]
+    
+    public static let regionSelectionPattern: [HapticEvent] = [
+        HapticEvent(type: .transient, intensity: 0.6, sharpness: 0.4, relativeTime: 0),
+        HapticEvent(type: .continuous, intensity: 0.3, sharpness: 0.2, relativeTime: 0.1),
+        HapticEvent(type: .transient, intensity: 0.7, sharpness: 0.5, relativeTime: 0.2)
+    ]
+
+    public static let qualityAlertPattern: [HapticEvent] = [
+        HapticEvent(type: .transient, intensity: 0.8, sharpness: 0.7, relativeTime: 0),
+        HapticEvent(type: .continuous, intensity: 0.4, sharpness: 0.3, relativeTime: 0.1),
+        HapticEvent(type: .transient, intensity: 0.8, sharpness: 0.7, relativeTime: 0.3)
+    ]
+
+    public static let measurementCompletePattern: [HapticEvent] = [
+        HapticEvent(type: .transient, intensity: 0.5, sharpness: 0.3, relativeTime: 0),
+        HapticEvent(type: .transient, intensity: 0.7, sharpness: 0.5, relativeTime: 0.15),
+        HapticEvent(type: .transient, intensity: 0.9, sharpness: 0.7, relativeTime: 0.3)
     ]
 }
 

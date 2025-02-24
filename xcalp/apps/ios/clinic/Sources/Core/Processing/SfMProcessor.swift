@@ -1,6 +1,6 @@
+import CoreImage
 import Foundation
 import Vision
-import CoreImage
 
 class SfMProcessor {
     private let colmapWrapper = COLMAPWrapper()
@@ -74,6 +74,6 @@ private class COLMAPWrapper {
     private func runColmapFeatureExtractor(_ image: CVPixelBuffer, options: [String]) throws -> [SIFTFeature] {
         // Implementation of COLMAP CLI wrapper
         // ... (detailed implementation in separate PR)
-        return []
+        []
     }
 }

@@ -1,7 +1,7 @@
-import Foundation
 import CryptoKit
-import KeychainAccess
 import Dependencies
+import Foundation
+import KeychainAccess
 
 /// Service for securely storing sensitive data following HIPAA requirements
 public final class SecureStorageService {
@@ -200,7 +200,7 @@ public final class SecureStorageService {
     }
     
     private func storageURL(for identifier: String, type: DataType) -> URL {
-        return secureStorageURL
+        secureStorageURL
             .appendingPathComponent(type.rawValue)
             .appendingPathComponent(identifier)
     }

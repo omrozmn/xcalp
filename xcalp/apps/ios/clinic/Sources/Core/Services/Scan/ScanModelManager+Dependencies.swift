@@ -3,7 +3,7 @@ import Foundation
 
 extension ScanModelManager: DependencyKey {
     static var liveValue: ScanModelManager = {
-        return ScanModelManager()
+        ScanModelManager()
     }()
 }
 

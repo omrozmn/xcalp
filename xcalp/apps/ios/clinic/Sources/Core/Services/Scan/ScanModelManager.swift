@@ -14,7 +14,7 @@ actor ScanModelManager {
     }
     
     func getCurrentScan() -> URL? {
-        return currentScanURL
+        currentScanURL
     }
     
     func validateScanModel(_ url: URL) throws {

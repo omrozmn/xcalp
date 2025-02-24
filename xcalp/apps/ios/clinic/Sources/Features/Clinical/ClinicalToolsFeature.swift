@@ -1,6 +1,6 @@
-import SwiftUI
-import Metal
 import CoreML
+import Metal
+import SwiftUI
 
 public struct ClinicalToolsFeature: ReducerProtocol {
     public struct State: Equatable {

@@ -1,6 +1,6 @@
+import CoreImage
 import Foundation
 import simd
-import CoreImage
 
 public final class DensityMapper {
     private let imageAnalyzer: ImageAnalyzer
@@ -104,7 +104,7 @@ public final class DensityMapper {
             }
         }
         
-        return count > 0 ? sum / Float(count) : 0
+        return !isEmpty ? sum / Float(count) : 0
     }
     
     private func isPointInPolygon(
@@ -208,7 +208,6 @@ public final class ImageAnalyzer {
             )
             
             return densityPoints
-            
         } catch {
             PerformanceMonitor.shared.endMeasuring(
                 "densityAnalysis",
@@ -296,7 +295,7 @@ public final class ImageAnalyzer {
     }
     
     private func detectHairFeatures(in image: CIImage) async throws -> [VNFeatureObservation] {
-        return try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { continuation in
             let request = VNDetectFeaturesRequest()
             request.featureTypes = [.edges, .ridges]
             
@@ -368,7 +367,7 @@ public final class ImageAnalyzer {
     private func calculateConfidence(density: Float) -> Float {
         // Simple confidence calculation based on density value
         // Could be enhanced with additional metrics
-        return min(max(density * 1.2, 0.0), 1.0)
+        min(max(density * 1.2, 0.0), 1.0)
     }
 }
 
@@ -405,7 +404,6 @@ public final class RegionSegmenter {
             )
             
             return regions
-            
         } catch {
             PerformanceMonitor.shared.endMeasuring(
                 "regionSegmentation",
@@ -649,7 +647,6 @@ public final class DensityInterpolator {
             )
             
             return (smoothedGrid, maxDensity, minDensity)
-            
         } catch {
             PerformanceMonitor.shared.endMeasuring(
                 "densityInterpolation",
@@ -796,7 +793,7 @@ public final class DensityInterpolator {
         // Gaussian smoothing
         let kernel = [
             [0.0625, 0.125, 0.0625],
-            [0.125,  0.25,  0.125],
+            [0.125, 0.25, 0.125],
             [0.0625, 0.125, 0.0625]
         ]
         

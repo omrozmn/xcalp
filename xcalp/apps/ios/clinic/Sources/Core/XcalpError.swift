@@ -16,8 +16,7 @@ public enum XcalpError: LocalizedError {
         case .unknown(let error): return error.localizedDescription
         }
     }
-}
-
+}\n
 // Security related errors
 public enum SecurityError: LocalizedError {
     case keychainAccess(String)

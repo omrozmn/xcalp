@@ -1,7 +1,7 @@
-import XCTest
-import CryptoKit
 import ComposableArchitecture
+import CryptoKit
 @testable import XcalpClinic
+import XCTest
 
 final class EncryptionTests: XCTestCase {
     func testDataAtRestEncryption() throws {

@@ -1,5 +1,5 @@
-import Foundation
 import CoreData
+import Foundation
 
 public struct ScanData: Identifiable, Equatable, Codable {
     public let id: UUID

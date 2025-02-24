@@ -70,7 +70,7 @@ class TreatmentPlanningService {
         region: SafeRegion
     ) -> DensityMap {
         // Generate density distribution with gradual falloff
-        return DensityMap(
+        DensityMap(
             baseValue: targetDensity,
             gradient: gradient,
             region: region
@@ -86,12 +86,12 @@ struct ScanData {
     
     func calculateRecipientArea() -> Double {
         // Calculate available surface area for transplantation
-        return surfaceArea * 0.7 // Typical usable area
+        surfaceArea * 0.7 // Typical usable area
     }
     
     func calculateSafeRegion(anterior: Double, posterior: Double, lateral: Double) -> SafeRegion {
         // Calculate safe region based on margins
-        return SafeRegion(
+        SafeRegion(
             bounds: mesh.boundingBox,
             anteriorMargin: anterior,
             posteriorMargin: posterior,

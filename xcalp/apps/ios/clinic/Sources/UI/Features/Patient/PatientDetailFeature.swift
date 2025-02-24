@@ -1,5 +1,5 @@
-import Foundation
 import ComposableArchitecture
+import Foundation
 
 public struct PatientDetailFeature: Reducer {
     public struct State: Equatable {
@@ -49,7 +49,7 @@ public struct PatientDetailFeature: Reducer {
                     
                     let treatments = [
                         Treatment(id: UUID(), date: Date(), type: .analysis, status: .completed),
-                        Treatment(id: UUID(), date: Date().addingTimeInterval(-86400*2), type: .planning, status: .inProgress)
+                        Treatment(id: UUID(), date: Date().addingTimeInterval(-86400 * 2), type: .planning, status: .inProgress)
                     ]
                     
                     await send(.patientDataResponse(.success((scans: scans, treatments: treatments))))

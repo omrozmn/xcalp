@@ -87,7 +87,7 @@ class QualityAssessmentPipeline {
     }
     
     func subscribeToQualityUpdates() -> AnyPublisher<QualityMetrics, Never> {
-        return qualitySubject.eraseToAnyPublisher()
+        qualitySubject.eraseToAnyPublisher()
     }
 }
 

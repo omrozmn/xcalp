@@ -37,7 +37,7 @@ actor TemplateManager {
     }
     
     func cloneTemplate(_ template: TreatmentTemplate, newName: String) async throws -> TreatmentTemplate {
-        return try await createTemplate(
+        try await createTemplate(
             name: newName,
             description: "Cloned from \(template.name)",
             parameters: template.parameters,
@@ -72,7 +72,7 @@ actor TemplateManager {
     
     // MARK: - Template Queries
     func loadTemplates() async throws -> [TreatmentTemplate] {
-        return try await templateClient.loadTemplates()
+        try await templateClient.loadTemplates()
     }
     
     func getTemplateHistory(_ templateId: UUID) async throws -> [TreatmentTemplate] {

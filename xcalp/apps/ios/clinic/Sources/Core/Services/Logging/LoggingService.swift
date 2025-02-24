@@ -1,6 +1,6 @@
+import FirebaseCrashlytics
 import Foundation
 import os.log
-import FirebaseCrashlytics
 
 public final class LoggingService {
     public static let shared = LoggingService()
@@ -94,7 +94,7 @@ public struct PerformanceMetric {
     let timestamp: Date
     
     var description: String {
-        return "[\(name)] \(value)\(unit) at \(timestamp)"
+        "[\(name)] \(value)\(unit) at \(timestamp)"
     }
 }
 

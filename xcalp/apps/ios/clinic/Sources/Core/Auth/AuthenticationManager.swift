@@ -1,4 +1,4 @@
-import Foundation
+import Foundation\n
 import LocalAuthentication
 import Combine
 import KeychainAccess

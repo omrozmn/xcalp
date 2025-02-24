@@ -1,5 +1,5 @@
-import Foundation
 import CoreData
+import Foundation
 
 actor OfflineOperationQueue {
     static let shared = OfflineOperationQueue()

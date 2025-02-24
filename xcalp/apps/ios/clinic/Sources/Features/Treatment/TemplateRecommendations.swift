@@ -1,6 +1,6 @@
-import SwiftUI
 import ComposableArchitecture
 import CoreML
+import SwiftUI
 
 struct TemplateRecommendationsView: View {
     let store: StoreOf<TemplateList>
@@ -370,7 +370,7 @@ public struct TemplateRecommendationEngine {
     
     private func calculateScalpHealthCompatibility(_ health: Double, _ template: TreatmentTemplate) -> Double {
         // Direct correlation with scalp health score
-        return health
+        health
     }
     
     private func calculateHairTypeCompatibility(_ hairType: HairType, _ template: TreatmentTemplate) -> Double {

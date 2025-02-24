@@ -52,28 +52,53 @@ public final class NetworkManager {
     private let retryDelay: TimeInterval = 2
     private let progressiveRetryMultiplier: Double = 1.5
     private let networkQualityAdjustment: Double = 1.5
+    private let minTimeout: TimeInterval = 10
+    private let maxTimeout: TimeInterval = 60
     
-    // Rate limiting
-    private var rateLimitRemainingCalls: Int = 100  // Default limit
+    // Rate limiting and quality tracking
+    private var rateLimitRemainingCalls: Int = 100
     private var rateLimitResetTime: Date = Date()
+    private var recentTimeouts: [Date] = []
+    private var activeRequests: Set<URLSessionTask> = []
+    private let timeoutWindowDuration: TimeInterval = 300
+    private let maxTimeoutsBeforeAdaption = 3
+    private let taskQueue = OperationQueue()
+    private let backgroundTaskManager = BackgroundTaskManager.shared
     
     private var adjustedTimeout: TimeInterval {
         let networkQuality = NetworkMonitor.shared.averageLatency
-        let multiplier = networkQuality > 1.0 ? networkQualityAdjustment : 1.0
-        return defaultTimeout * multiplier
+        let baseTimeout = defaultTimeout * (networkQuality > 1.0 ? networkQualityAdjustment : 1.0)
+        
+        // Adjust based on recent timeouts
+        let recentTimeoutCount = recentTimeouts.filter { 
+            Date().timeIntervalSince($0) < timeoutWindowDuration 
+        }.count
+        
+        let timeoutMultiplier = 1.0 + (Double(recentTimeoutCount) * 0.25)
+        let adjustedValue = baseTimeout * timeoutMultiplier
+        
+        return max(minTimeout, min(maxTimeout, adjustedValue))
     }
     
     private init() {
+        taskQueue.maxConcurrentOperationCount = 4
+        taskQueue.qualityOfService = .userInitiated
+        
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = adjustedTimeout
-        config.timeoutIntervalForResource = adjustedTimeout * 2
         config.waitsForConnectivity = true
         config.httpMaximumConnectionsPerHost = 5
+        config.timeoutIntervalForRequest = adjustedTimeout
+        config.timeoutIntervalForResource = adjustedTimeout * 2
+        
         session = URLSession(configuration: config)
     }
     
     public func request<T: Codable>(_ endpoint: APIEndpoint, retryCount: Int = 0) async throws -> T {
-        // Update timeout based on current network conditions
+        // Register background task
+        let taskID = await backgroundTaskManager.beginTask("networkRequest")
+        defer { backgroundTaskManager.endTask(taskID) }
+        
+        // Update timeout dynamically
         session.configuration.timeoutIntervalForRequest = adjustedTimeout
         session.configuration.timeoutIntervalForResource = adjustedTimeout * 2
         
@@ -89,43 +114,59 @@ public final class NetworkManager {
         var request = URLRequest(url: url)
         request.httpMethod = endpoint.method.rawValue
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("\(Date().timeIntervalSince1970)", forHTTPHeaderField: "X-Request-Start")
         
-        // Add authentication
         if let token = try? AuthenticationManager.shared.currentToken {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         
-        // Add request body
         if let body = endpoint.body {
             request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         }
         
         do {
-            let (data, response) = try await session.data(for: request)
+            let task = session.dataTask(with: request)
+            activeRequests.insert(task)
+            defer { activeRequests.remove(task) }
+            
+            let (data, response) = try await withCheckedThrowingContinuation { continuation in
+                task.resume()
+                
+                // Set up task completion handler
+                taskQueue.addOperation {
+                    if let error = task.error {
+                        continuation.resume(throwing: error)
+                    } else if let data = task.response, let response = task.response {
+                        continuation.resume(returning: (data, response))
+                    }
+                }
+            }
             
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw NetworkError.invalidResponse
             }
             
-            // Update rate limiting info
+            // Log request duration
+            if let startTime = Double(httpResponse.value(forHTTPHeaderField: "X-Request-Start") ?? ""),
+               startTime > 0 {
+                let duration = Date().timeIntervalSince1970 - startTime
+                logger.info("Request to \(endpoint.path) completed in \(String(format: "%.3f", duration))s")
+            }
+            
+            // Handle response
             updateRateLimits(from: httpResponse)
             
             switch httpResponse.statusCode {
             case 200...299:
-                do {
-                    let decoder = JSONDecoder()
-                    decoder.dateDecodingStrategy = .iso8601
-                    return try decoder.decode(T.self, from: data)
-                } catch {
-                    logError(.decodingError, endpoint: endpoint, error: error)
-                    throw NetworkError.decodingError
-                }
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                return try decoder.decode(T.self, from: data)
                 
             case 401:
                 logError(.unauthorized, endpoint: endpoint)
                 throw NetworkError.unauthorized
                 
-            case 429:  // Rate Limited
+            case 429:
                 let retryAfter = TimeInterval(httpResponse.value(forHTTPHeaderField: "Retry-After") ?? "60") ?? 60
                 rateLimitResetTime = Date().addingTimeInterval(retryAfter)
                 throw NetworkError.rateLimited(retryAfter: retryAfter)
@@ -133,9 +174,8 @@ public final class NetworkManager {
             case 500...599:
                 logError(.serverError(httpResponse.statusCode), endpoint: endpoint)
                 
-                // Retry server errors with backoff
                 if retryCount < maxRetries {
-                    try await Task.sleep(nanoseconds: UInt64(retryDelay * pow(progressiveRetryMultiplier, Double(retryCount)) * 1_000_000_000))
+                    try await handleTimeout(for: endpoint, retryCount: retryCount)
                     return try await request(endpoint, retryCount: retryCount + 1)
                 }
                 
@@ -144,21 +184,16 @@ public final class NetworkManager {
             default:
                 throw NetworkError.unknown(nil)
             }
-            
         } catch let error as URLError {
             switch error.code {
             case .notConnectedToInternet:
                 throw NetworkError.noInternet
                 
             case .timedOut:
-                logError(.timeout(retryCount: retryCount), endpoint: endpoint)
-                
-                // Retry timeouts with backoff
                 if retryCount < maxRetries {
-                    try await Task.sleep(nanoseconds: UInt64(retryDelay * pow(progressiveRetryMultiplier, Double(retryCount)) * 1_000_000_000))
+                    try await handleTimeout(for: endpoint, retryCount: retryCount)
                     return try await request(endpoint, retryCount: retryCount + 1)
                 }
-                
                 throw NetworkError.timeout(retryCount: retryCount)
                 
             case .cancelled:
@@ -170,7 +205,10 @@ public final class NetworkManager {
         }
     }
     
-    // MARK: - Private Methods
+    public func cancelAllRequests() {
+        activeRequests.forEach { $0.cancel() }
+        activeRequests.removeAll()
+    }
     
     private func updateRateLimits(from response: HTTPURLResponse) {
         if let remaining = Int(response.value(forHTTPHeaderField: "X-RateLimit-Remaining") ?? ""),
@@ -197,6 +235,30 @@ public final class NetworkManager {
         )
         
         logger.error("\(errorDetails)")
+    }
+    
+    private func handleTimeout(for endpoint: APIEndpoint, retryCount: Int) async throws {
+        recentTimeouts.append(Date())
+        
+        // Clean up old timeout records
+        recentTimeouts = recentTimeouts.filter {
+            Date().timeIntervalSince($0) < timeoutWindowDuration
+        }
+        
+        logError(.timeout(retryCount: retryCount), endpoint: endpoint)
+        
+        if recentTimeouts.count >= maxTimeoutsBeforeAdaption {
+            logger.warning("Multiple timeouts detected - adjusting network parameters")
+            hipaaLogger.log(
+                type: .systemWarning,
+                action: "Network Adaptation",
+                userID: "SYSTEM",
+                details: "Multiple timeouts triggered network parameter adjustment"
+            )
+        }
+        
+        let backoffDelay = retryDelay * pow(progressiveRetryMultiplier, Double(retryCount))
+        try await Task.sleep(nanoseconds: UInt64(backoffDelay * 1_000_000_000))
     }
 }
 

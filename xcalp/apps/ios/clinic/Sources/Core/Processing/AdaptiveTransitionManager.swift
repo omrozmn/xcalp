@@ -1,5 +1,5 @@
-import Combine
 import ARKit
+import Combine
 
 class AdaptiveTransitionManager {
     private let qualityPipeline: QualityAssessmentPipeline

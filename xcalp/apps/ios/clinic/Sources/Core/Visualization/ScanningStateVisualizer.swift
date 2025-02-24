@@ -1,6 +1,6 @@
-import SwiftUI
 import ARKit
 import SceneKit
+import SwiftUI
 
 class ScanningStateVisualizer {
     private let sceneView: ARSCNView
@@ -214,21 +214,21 @@ extension SCNGeometry {
     
     static func createConfidenceVisualization() -> SCNGeometry {
         // Implement confidence visualization geometry
-        return SCNBox(width: 0.1, height: 0.1, length: 0.1, chamferRadius: 0)
+        SCNBox(width: 0.1, height: 0.1, length: 0.1, chamferRadius: 0)
     }
     
     static func createFeatureVisualization() -> SCNGeometry {
         // Implement feature visualization geometry
-        return SCNSphere(radius: 0.01)
+        SCNSphere(radius: 0.01)
     }
     
     static func createFusionVisualization() -> SCNGeometry {
         // Implement fusion visualization geometry
-        return SCNPyramid(width: 0.1, height: 0.1, length: 0.1)
+        SCNPyramid(width: 0.1, height: 0.1, length: 0.1)
     }
     
     static func createTransitionVisualization(from: ScanningModes, to: ScanningModes) -> SCNGeometry {
         // Implement transition visualization geometry
-        return SCNTorus(ringRadius: 0.1, pipeRadius: 0.01)
+        SCNTorus(ringRadius: 0.1, pipeRadius: 0.01)
     }
 }

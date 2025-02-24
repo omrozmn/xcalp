@@ -1,6 +1,6 @@
 import ARKit
-import Vision
 import simd
+import Vision
 
 class QualityMetricsCalculator {
     // Point cloud density calculation

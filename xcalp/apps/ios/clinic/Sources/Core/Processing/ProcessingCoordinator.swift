@@ -105,13 +105,13 @@ class ProcessingCoordinator {
     private func validatePointCloudConsistency(_ points: [SIMD3<Float>]) -> Float {
         // Implement point cloud consistency validation
         // This is a placeholder implementation
-        return 0.8
+        0.8
     }
     
     private func calculatePointDistribution(_ points: [SIMD3<Float>]) -> Float {
         // Implement point distribution calculation
         // This is a placeholder implementation
-        return 0.7
+        0.7
     }
     
     private func updateQualityMetrics(

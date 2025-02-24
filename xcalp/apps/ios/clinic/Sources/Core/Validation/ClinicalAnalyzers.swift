@@ -1,6 +1,6 @@
-import Foundation
-import ARKit
 import Accelerate
+import ARKit
+import Foundation
 
 // Surface Accuracy Analysis
 class SurfaceAccuracyAnalyzer {

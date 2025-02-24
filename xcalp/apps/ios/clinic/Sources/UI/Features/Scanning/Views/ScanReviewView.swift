@@ -1,5 +1,5 @@
-import SwiftUI
 import ComposableArchitecture
+import SwiftUI
 
 public struct ScanReviewView: View {
     let store: StoreOf<ScanReviewFeature>

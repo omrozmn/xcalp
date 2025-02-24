@@ -1,7 +1,7 @@
+import Combine
+import CoreML
 import Foundation
 import SwiftUI
-import CoreML
-import Combine
 
 public struct TreatmentFeature: ReducerProtocol {
     public struct State: Equatable {

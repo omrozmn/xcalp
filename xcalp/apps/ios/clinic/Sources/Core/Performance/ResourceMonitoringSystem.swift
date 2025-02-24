@@ -1,7 +1,7 @@
+import Darwin
 import Foundation
 import Metal
 import MetalPerformanceShaders
-import Darwin
 
 class ResourceMonitoringSystem {
     private var cpuInfo: processor_info_array_t?
@@ -9,10 +9,14 @@ class ResourceMonitoringSystem {
     private var numCPUInfo: mach_msg_type_number_t = 0
     private var numPrevCPUInfo: mach_msg_type_number_t = 0
     private var numCPUs: uint = 0
+    #if os(iOS)
     private let loadInfoCount: natural_t = UInt32(HOST_CPU_LOAD_INFO_COUNT)
+    #endif
     
     init() {
+        #if os(iOS)
         var size = MemoryLayout<integer_t>.stride * Int(HOST_VM_INFO64_COUNT)
+        #endif
         host_processor_info(mach_host_self(),
                           PROCESSOR_CPU_LOAD_INFO,
                           &numCPUs,
@@ -24,7 +28,6 @@ class ResourceMonitoringSystem {
         var totalUsage: Float = 0.0
         
         // Get the latest CPU info
-        var size = MemoryLayout<integer_t>.stride * Int(HOST_VM_INFO64_COUNT)
         let result = host_processor_info(mach_host_self(),
                                        PROCESSOR_CPU_LOAD_INFO,
                                        &numCPUs,
@@ -69,30 +72,30 @@ class ResourceMonitoringSystem {
     func getMemoryUsage() -> Float {
         var pagesize: vm_size_t = 0
         
-        let host_port: mach_port_t = mach_host_self()
-        var host_size: mach_msg_type_number_t = mach_msg_type_number_t(MemoryLayout<vm_statistics_data_t>.stride / MemoryLayout<integer_t>.stride)
-        var host_info_64: vm_statistics64 = vm_statistics64()
+        let hostPort: mach_port_t = mach_host_self()
+        var hostSize: mach_msg_type_number_t = mach_msg_type_number_t(MemoryLayout<vm_statistics_data_t>.stride / MemoryLayout<integer_t>.stride)
+        var hostInfo64: vm_statistics64 = vm_statistics64()
         
-        host_page_size(host_port, &pagesize)
+        host_page_size(hostPort, &pagesize)
         
-        let status = withUnsafeMutablePointer(to: &host_info_64) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(host_size)) {
-                host_statistics64(host_port,
+        let status = withUnsafeMutablePointer(to: &hostInfo64) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(hostSize)) {
+                host_statistics64(hostPort,
                                 HOST_VM_INFO64,
                                 $0,
-                                &host_size)
+                                &hostSize)
             }
         }
         
         if status == KERN_SUCCESS {
-            let total = Float(host_info_64.wire_count +
-                            host_info_64.active_count +
-                            host_info_64.inactive_count +
-                            host_info_64.free_count)
+            let total = Float(hostInfo64.wire_count +
+                            hostInfo64.active_count +
+                            hostInfo64.inactive_count +
+                            hostInfo64.free_count)
             
-            let used = Float(host_info_64.wire_count +
-                           host_info_64.active_count +
-                           host_info_64.inactive_count)
+            let used = Float(hostInfo64.wire_count +
+                           hostInfo64.active_count +
+                           hostInfo64.inactive_count)
             
             return min(max(used / total, 0), 1)
         }
@@ -127,11 +130,11 @@ class ResourceMonitoringSystem {
     }
     
     func getThermalState() -> ProcessInfo.ThermalState {
-        return ProcessInfo.processInfo.thermalState
+        ProcessInfo.processInfo.thermalState
     }
     
     func getSystemLoad() -> SystemLoadMetrics {
-        return SystemLoadMetrics(
+        SystemLoadMetrics(
             cpuUsage: getCPUUsage(),
             memoryUsage: getMemoryUsage(),
             thermalState: getThermalState()
@@ -151,7 +154,7 @@ struct SystemLoadMetrics {
     let thermalState: ProcessInfo.ThermalState
     
     var isSystemStressed: Bool {
-        return cpuUsage > 0.85 || memoryUsage > 0.90 || thermalState == .serious
+        cpuUsage > 0.85 || memoryUsage > 0.90 || thermalState == .serious
     }
     
     var recommendedOptimizations: [PerformanceOptimization] {

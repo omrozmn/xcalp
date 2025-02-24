@@ -86,7 +86,7 @@ struct TreatmentTemplate: Codable, Identifiable, Equatable {
 
         // Validate that regions don't overlap
         for i in 0..<regions.count {
-            for j in (i+1)..<regions.count {
+            for j in (i + 1)..<regions.count {
                 if regions[i].overlaps(with: regions[j]) {
                     return false
                 }

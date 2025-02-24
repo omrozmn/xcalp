@@ -1,6 +1,6 @@
-import Foundation
 import ComposableArchitecture
 import CoreData
+import Foundation
 
 public struct ProcessingFeature: Reducer {
     public struct State: Equatable {

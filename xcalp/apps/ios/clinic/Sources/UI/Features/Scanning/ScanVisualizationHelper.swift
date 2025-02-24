@@ -1,6 +1,6 @@
+import ARKit
 import Foundation
 import RealityKit
-import ARKit
 import UIKit
 
 public final class ScanVisualizationHelper {
@@ -151,7 +151,7 @@ public final class ScanVisualizationHelper {
                 
                 // Position in bottom-right corner
                 progressIndicator.position = [0.15, -0.15, -0.3]
-                progressIndicator.orientation = simd_quatf(angle: .pi/2, axis: [1, 0, 0])
+                progressIndicator.orientation = simd_quatf(angle: .pi / 2, axis: [1, 0, 0])
             }
         }
     }

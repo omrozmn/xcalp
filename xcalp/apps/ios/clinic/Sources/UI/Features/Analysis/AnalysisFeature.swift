@@ -1,6 +1,6 @@
-import Foundation
 import ComposableArchitecture
 import CoreML
+import Foundation
 import Vision
 
 public struct AnalysisFeature: Reducer {

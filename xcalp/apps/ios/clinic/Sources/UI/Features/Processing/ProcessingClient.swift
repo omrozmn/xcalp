@@ -1,8 +1,8 @@
-import Foundation
-import Dependencies
-import CoreImage
-import Metal
 import ComposableArchitecture
+import CoreImage
+import Dependencies
+import Foundation
+import Metal
 
 public struct ProcessingClient {
     public var processData: @Sendable (ProcessingInput) async throws -> AsyncStream<Double>
@@ -46,7 +46,6 @@ public struct ProcessingClient {
                         // Cache processed result
                         try CacheManager.shared.store(processedData, forKey: cacheKey)
                         continuation.finish()
-                        
                     } catch {
                         continuation.finish()
                         throw error

@@ -222,14 +222,14 @@ class MockAuditService: AuditService {
     static let shared: AuditService = MockAuditService()
     
     func getAuditTrail(forIdentifier: String, type: DataType) async throws -> AuditTrail {
-        return AuditTrail(
+        AuditTrail(
             entries: [],
             storageType: .encrypted
         )
     }
     
     func hasAuditTrail(forIdentifier: String, type: DataType) async throws -> Bool {
-        return true
+        true
     }
 }
 #endif

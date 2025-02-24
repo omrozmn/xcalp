@@ -1,6 +1,11 @@
 import Foundation
 import simd
 
+struct OctreePoint {
+    let position: SIMD3<Float>
+    let normal: SIMD3<Float>?
+}
+
 class Octree {
     private var root: OctreeNode
     private let maxDepth: Int
@@ -10,12 +15,12 @@ class Octree {
         self.root = OctreeNode(boundingBox: BoundingBox())
     }
     
-    func insert(_ point: SIMD3<Float>) {
-        root.insert(point, maxDepth: maxDepth)
+    func insert(_ point: SIMD3<Float>, normal: SIMD3<Float>? = nil) {
+        root.insert(OctreePoint(position: point, normal: normal), maxDepth: maxDepth)
     }
     
-    func findKNearestNeighbors(to point: SIMD3<Float>, k: Int) -> [SIMD3<Float>] {
-        var neighbors: [(point: SIMD3<Float>, distance: Float)] = []
+    func findKNearestNeighbors(to point: SIMD3<Float>, k: Int) -> [OctreePoint] {
+        var neighbors: [(point: OctreePoint, distance: Float)] = []
         root.findKNearestNeighbors(to: point, k: k, neighbors: &neighbors)
         return neighbors.sorted { $0.distance < $1.distance }.map { $0.point }
     }
@@ -23,23 +28,32 @@ class Octree {
     func adaptNodes(_ condition: (OctreeNode) -> Bool) {
         root.adapt(condition)
     }
+    
+    func evaluateImplicitFunction(at point: SIMD3<Float>) -> Float {
+        return root.evaluateImplicitFunction(at: point)
+    }
 }
 
 class OctreeNode {
-    private var points: [SIMD3<Float>] = []
+    private var points: [OctreePoint] = []
     private var children: [OctreeNode]?
     private let boundingBox: BoundingBox
     private let maxPointsPerNode = 8
+    private var value: Float = 0.0
+    
+    var center: SIMD3<Float> {
+        return (boundingBox.min + boundingBox.max) * 0.5
+    }
     
     init(boundingBox: BoundingBox) {
         self.boundingBox = boundingBox
     }
     
-    func insert(_ point: SIMD3<Float>, maxDepth: Int, currentDepth: Int = 0) {
-        guard boundingBox.contains(point) else { return }
+    func insert(_ point: OctreePoint, maxDepth: Int, currentDepth: Int = 0) {
+        guard boundingBox.contains(point.position) else { return }
         
         if let children = children {
-            let octant = getOctant(for: point)
+            let octant = getOctant(for: point.position)
             children[octant].insert(point, maxDepth: maxDepth, currentDepth: currentDepth + 1)
         } else {
             points.append(point)
@@ -57,10 +71,10 @@ class OctreeNode {
         }
     }
     
-    func findKNearestNeighbors(to query: SIMD3<Float>, k: Int, neighbors: inout [(point: SIMD3<Float>, distance: Float)]) {
+    func findKNearestNeighbors(to query: SIMD3<Float>, k: Int, neighbors: inout [(point: OctreePoint, distance: Float)]) {
         if let children = children {
             // Search children in order of distance to query point
-            let childrenWithDistances = children.enumerated().map { (index, child) -> (index: Int, distance: Float) in
+            let childrenWithDistances = children.enumerated().map { index, child -> (index: Int, distance: Float) in
                 let center = child.boundingBox.center
                 return (index, distance(center, query))
             }
@@ -71,7 +85,7 @@ class OctreeNode {
         } else {
             // Add points from this node
             for point in points {
-                let dist = distance(point, query)
+                let dist = distance(point.position, query)
                 
                 if neighbors.count < k {
                     neighbors.append((point, dist))
@@ -93,24 +107,39 @@ class OctreeNode {
         children?.forEach { $0.adapt(condition) }
     }
     
-    private func subdivide() {
-        let center = boundingBox.center
-        let halfSize = boundingBox.size * 0.5
+    func evaluateImplicitFunction(at point: SIMD3<Float>) -> Float {
+        if let children = children {
+            let octant = getOctant(for: point)
+            return children[octant].evaluateImplicitFunction(at: point)
+        }
         
-        children = (0..<8).map { octant -> OctreeNode in
-            let offset = SIMD3<Float>(
-                Float(octant & 1),
-                Float((octant >> 1) & 1),
-                Float((octant >> 2) & 1)
+        return value
+    }
+    
+    func updateValue(_ newValue: Float) {
+        value = newValue
+    }
+    
+    private func subdivide() {
+        let center = self.center
+        children = (0..<8).map { octant in
+            let childBBox = BoundingBox(
+                min: SIMD3<Float>(
+                    octant & 1 == 0 ? boundingBox.min.x : center.x,
+                    octant & 2 == 0 ? boundingBox.min.y : center.y,
+                    octant & 4 == 0 ? boundingBox.min.z : center.z
+                ),
+                max: SIMD3<Float>(
+                    octant & 1 == 0 ? center.x : boundingBox.max.x,
+                    octant & 2 == 0 ? center.y : boundingBox.max.y,
+                    octant & 4 == 0 ? center.z : boundingBox.max.z
+                )
             )
-            let min = center + (offset - 1) * halfSize
-            let max = center + offset * halfSize
-            return OctreeNode(boundingBox: BoundingBox(min: min, max: max))
+            return OctreeNode(boundingBox: childBBox)
         }
     }
     
     private func getOctant(for point: SIMD3<Float>) -> Int {
-        let center = boundingBox.center
         var octant = 0
         if point.x >= center.x { octant |= 1 }
         if point.y >= center.y { octant |= 2 }

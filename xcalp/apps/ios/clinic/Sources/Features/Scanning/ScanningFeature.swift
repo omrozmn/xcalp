@@ -1,8 +1,8 @@
-import SwiftUI
 import ARKit
-import RealityKit
 import Combine
 import CoreHaptics
+import RealityKit
+import SwiftUI
 
 public struct ScanningFeature: ReducerProtocol {
     public struct State: Equatable {

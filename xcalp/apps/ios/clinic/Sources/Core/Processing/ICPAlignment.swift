@@ -52,7 +52,7 @@ class ICPAlignment {
     }
     
     private func findCorrespondences(source: [SIMD3<Float>], target: [SIMD3<Float>]) -> [SIMD3<Float>] {
-        return source.map { sourcePoint in
+        source.map { sourcePoint in
             target.min { a, b in
                 distance(sourcePoint, a) < distance(sourcePoint, b)
             } ?? sourcePoint
@@ -120,7 +120,7 @@ class ICPAlignment {
         // Simplified SVD implementation for 3x3 matrices
         // In practice, you would use a numerical library like Accelerate
         // This is a placeholder that returns identity matrices
-        return (matrix_identity_float3x3, SIMD3<Float>(1, 1, 1), matrix_identity_float3x3)
+        (matrix_identity_float3x3, SIMD3<Float>(1, 1, 1), matrix_identity_float3x3)
     }
 }
 

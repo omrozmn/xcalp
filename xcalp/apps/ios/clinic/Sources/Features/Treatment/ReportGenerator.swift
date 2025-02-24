@@ -1,6 +1,6 @@
+import Charts
 import Foundation
 import PDFKit
-import Charts
 
 public class ReportGenerator {
     public struct Report {

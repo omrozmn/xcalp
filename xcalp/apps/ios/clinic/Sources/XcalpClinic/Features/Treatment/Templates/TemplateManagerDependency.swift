@@ -1,6 +1,6 @@
-import Foundation
 import ComposableArchitecture
 import Dependencies
+import Foundation
 
 private enum TemplateManagerKey: DependencyKey {
     static let liveValue: TemplateManager = TemplateManager(storage: DefaultTemplateStorage())

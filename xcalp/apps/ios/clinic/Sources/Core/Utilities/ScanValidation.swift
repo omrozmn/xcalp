@@ -1,5 +1,5 @@
-import Foundation
 import ARKit
+import Foundation
 import SensorCapabilityManager
 
 class ScanValidation {
@@ -60,7 +60,7 @@ class ScanValidation {
     private static func calculatePointCloudDensity(_ points: ARPointCloud) -> Float {
         // Implementation based on MDPI Sensors Journal recommendations
         // ...
-        return 0.0
+        0.0
     }
     
     private static func calculateMotionDeviation(_ frame: ARFrame) -> Float {

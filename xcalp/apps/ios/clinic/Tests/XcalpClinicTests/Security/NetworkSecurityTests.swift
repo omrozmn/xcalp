@@ -1,7 +1,7 @@
-import XCTest
-import Network
 import ComposableArchitecture
+import Network
 @testable import XcalpClinic
+import XCTest
 
 final class NetworkSecurityTests: XCTestCase {
     func testSecureNetworkConfiguration() throws {

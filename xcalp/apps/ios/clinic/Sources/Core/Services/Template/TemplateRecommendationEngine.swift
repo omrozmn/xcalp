@@ -1,12 +1,36 @@
 import Foundation
+import Core
+
+enum RecommendationError: Error, CustomStringConvertible {
+    case templateLoadingFailed(Error)
+    case invalidInput(String)
+    
+    var description: String {
+        switch self {
+        case .templateLoadingFailed(let error):
+            return "Failed to load templates: \(error.localizedDescription)"
+        case .invalidInput(let message):
+            return "Invalid input: \(message)"
+        }
+    }
+}
 
 actor TemplateRecommendationEngine {
-    private let analytics: TemplateAnalytics
-    private let templateManager: TemplateManager
+    private let analytics: AnalyticsService
+    private let templateManager: TemplateService
+    private let minConfidenceThreshold: Double
+    private let maxRecommendations: Int
     
-    init(analytics: TemplateAnalytics, templateManager: TemplateManager) {
+    init(
+        analytics: TemplateAnalytics,
+        templateManager: TemplateManager,
+        minConfidenceThreshold: Double = 0.5,
+        maxRecommendations: Int = 5
+    ) {
         self.analytics = analytics
         self.templateManager = templateManager
+        self.minConfidenceThreshold = minConfidenceThreshold
+        self.maxRecommendations = maxRecommendations
     }
     
     struct Recommendation {
@@ -20,7 +44,12 @@ actor TemplateRecommendationEngine {
         regionCount: Int? = nil,
         treatmentTime: TimeInterval? = nil
     ) async throws -> [Recommendation] {
-        let templates = try await templateManager.loadTemplates()
+        let templates: [TreatmentTemplate]
+        do {
+            templates = try await templateManager.loadTemplates()
+        } catch {
+            throw RecommendationError.templateLoadingFailed(error)
+        }
         var recommendations: [Recommendation] = []
         
         for template in templates {
@@ -57,71 +86,3 @@ actor TemplateRecommendationEngine {
             }
             
             // Treatment time match
-            if let treatmentTime = treatmentTime {
-                let timeScore = calculateTimeScore(
-                    target: treatmentTime,
-                    average: stats.averageTreatmentTime
-                )
-                confidence *= timeScore
-                
-                if timeScore > 0.8 {
-                    reasons.append("Matches time requirements")
-                }
-            }
-            
-            // Add success rate context
-            if stats.successRate > 0.9 {
-                reasons.append("High success rate (\(Int(stats.successRate * 100))%)")
-                confidence *= 1.2 // Boost confidence for highly successful templates
-            }
-            
-            // Add usage frequency context
-            if stats.useCount > 10 {
-                reasons.append("Frequently used (\(stats.useCount) times)")
-                confidence *= 1.1 // Boost confidence for well-tested templates
-            }
-            
-            if confidence > 0.5 { // Only include reasonably confident recommendations
-                recommendations.append(Recommendation(
-                    template: template,
-                    confidence: confidence,
-                    reason: reasons.joined(separator: ", ")
-                ))
-            }
-        }
-        
-        // Sort by confidence and return top recommendations
-        return recommendations
-            .sorted(by: { $0.confidence > $1.confidence })
-            .prefix(5)
-            .map { $0 }
-    }
-    
-    private func calculateBaseConfidence(_ stats: TemplateAnalytics.TemplateUsageStats) -> Double {
-        // Base confidence from success rate and usage
-        let usageWeight = min(Double(stats.useCount) / 10.0, 1.0) // Max weight at 10 uses
-        return (stats.successRate * 0.7 + usageWeight * 0.3)
-    }
-    
-    private func calculateDensityScore(target: Double, range: ClosedRange<Double>) -> Double {
-        if range.contains(target) {
-            return 1.0
-        }
-        
-        let distance = min(
-            abs(target - range.lowerBound),
-            abs(target - range.upperBound)
-        )
-        return max(0, 1 - (distance / 20.0)) // 20 grafts/cm² difference = 0 score
-    }
-    
-    private func calculateRegionScore(target: Int, actual: Int) -> Double {
-        let difference = abs(target - actual)
-        return max(0, 1 - Double(difference) / 3.0) // 3 region difference = 0 score
-    }
-    
-    private func calculateTimeScore(target: TimeInterval, average: TimeInterval) -> Double {
-        let difference = abs(target - average)
-        return max(0, 1 - (difference / (30 * 60))) // 30 minutes difference = 0 score
-    }
-}

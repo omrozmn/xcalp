@@ -1,5 +1,5 @@
-import SwiftUI
 import Combine
+import SwiftUI
 
 public final class NavigationCoordinator: ObservableObject {
     public static let shared = NavigationCoordinator()

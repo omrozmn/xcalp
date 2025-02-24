@@ -1,7 +1,7 @@
-import SwiftUI
 import ComposableArchitecture
 import FirebaseCore
 import FirebaseCrashlytics
+import SwiftUI
 
 @main
 struct XcalpApp: App {
@@ -120,3 +120,4 @@ struct RootView: View {
         }
     }
 }
+\n

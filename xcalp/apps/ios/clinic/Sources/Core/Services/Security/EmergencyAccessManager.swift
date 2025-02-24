@@ -1,5 +1,5 @@
-import Foundation
 import Dependencies
+import Foundation
 
 public final class EmergencyAccessManager {
     public static let shared = EmergencyAccessManager()
@@ -152,19 +152,19 @@ public final class EmergencyAccessManager {
     private func canRequestEmergencyAccess(_ userId: String) async throws -> Bool {
         // Implementation would check user's role and permissions
         // This is a placeholder that should be implemented based on your authorization system
-        return true
+        true
     }
     
     private func generateAccessToken(for access: EmergencyAccess) throws -> String {
         // Implementation would generate secure token
         // This is a placeholder that should be implemented with proper cryptographic token generation
-        return "emergency_\(access.id)"
+        "emergency_\(access.id)"
     }
     
     private func validateAccessToken(_ token: EmergencyAccessToken, for access: EmergencyAccess) throws -> Bool {
         // Implementation would validate token cryptographically
         // This is a placeholder that should be implemented with proper token validation
-        return token.token == "emergency_\(access.id)"
+        token.token == "emergency_\(access.id)"
     }
     
     private func scheduleAccessExpiration(_ access: EmergencyAccess) {

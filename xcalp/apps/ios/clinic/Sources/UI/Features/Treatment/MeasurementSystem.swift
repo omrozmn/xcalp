@@ -333,7 +333,7 @@ public final class MeshAnalyzer {
     private func measureThickness(from point: simd_float3, in direction: simd_float3, vertices: [simd_float3]) -> Float? {
         // Implement ray-casting to find thickness
         // For now, return a placeholder
-        return 1.0
+        1.0
     }
     
     private func generateCurvatureMap(vertices: [simd_float3], normals: [simd_float3]) -> [[Float]] {

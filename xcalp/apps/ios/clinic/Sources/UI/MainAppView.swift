@@ -1,5 +1,5 @@
-import SwiftUI
 import ComposableArchitecture
+import SwiftUI
 
 public struct MainAppView: View {
     let store: Store<MainAppFeature.State?, MainAppFeature.Action>

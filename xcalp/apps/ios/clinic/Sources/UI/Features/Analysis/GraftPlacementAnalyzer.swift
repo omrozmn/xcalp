@@ -1,11 +1,20 @@
+import ARKit
+import Combine
 import CoreML
-import Vision
 import simd
+import SwiftUI
+import Vision
 
+/**
+ Analyzes graft placement for optimal hair restoration.
+ */
 public final class GraftPlacementAnalyzer {
     private let densityModel: HairDensityModel
     private let placementOptimizer: PlacementOptimizer
     
+    /**
+     Initializes a new graft placement analyzer.
+     */
     public init() throws {
         let config = MLModelConfiguration()
         config.computeUnits = .all
@@ -14,6 +23,11 @@ public final class GraftPlacementAnalyzer {
         self.placementOptimizer = PlacementOptimizer()
     }
     
+    /**
+     Calculates the optimal graft placements based on hair density.
+     
+     - Returns: An array of `GraftPlacement` objects representing the optimal placements.
+     */
     public func calculateOptimalPlacements() async throws -> [GraftPlacement] {
         // Get current density map
         let densityMap = try await densityModel.generateDensityMap()
@@ -27,20 +41,60 @@ public final class GraftPlacementAnalyzer {
     }
 }
 
+/**
+ Represents a graft placement with its region, count, coverage, and directions.
+ */
 public struct GraftPlacement {
+    /**
+     The region where the graft is placed.
+     */
     public let region: Region
+    /**
+     The number of grafts placed in the region.
+     */
     public let graftCount: Int
+    /**
+     The coverage achieved by the graft placement.
+     */
     public let coverage: Float
+    /**
+     The directions of the grafts.
+     */
     public let directions: [SIMD3<Float>]
     
+    /**
+     Represents a region for graft placement.
+     */
     public struct Region {
+        /**
+         The center of the region.
+         */
         public let center: SIMD3<Float>
+        /**
+         The radius of the region.
+         */
         public let radius: Float
+        /**
+         The current density of hair in the region.
+         */
         public let currentDensity: Float
     }
 }
 
+/**
+ Optimizes graft placements within a density map.
+ */
 private final class PlacementOptimizer {
+    /**
+     Optimizes graft placements for a given density map.
+     
+     - Parameters:
+        - densityMap: The density map to optimize placements for.
+        - targetDensity: The target density of grafts per unit area.
+        - minSpacing: The minimum spacing between grafts.
+     
+     - Returns: An array of `GraftPlacement` objects representing the optimized placements.
+     */
     func optimizePlacements(
         for densityMap: DensityMap,
         targetDensity: Float,
@@ -72,12 +126,12 @@ private final class PlacementOptimizer {
         var regions: [GraftPlacement.Region] = []
         
         // Find local density minima
-        for y in stride(from: 0, to: densityMap.height, by: 10) {
-            for x in stride(from: 0, to: densityMap.width, by: 10) {
-                let density = densityMap.density(at: x, y)
-                if isLocalMinimum(density: density, at: x, y, in: densityMap) {
+        for yCoordinate in stride(from: 0, to: densityMap.height, by: 10) {
+            for xCoordinate in stride(from: 0, to: densityMap.width, by: 10) {
+                let density = densityMap.density(at: xCoordinate, yCoordinate)
+                if isLocalMinimum(density: density, at: xCoordinate, yCoordinate, in: densityMap) {
                     regions.append(GraftPlacement.Region(
-                        center: SIMD3<Float>(Float(x), Float(y), 0),
+                        center: SIMD3<Float>(Float(xCoordinate), Float(yCoordinate), 0),
                         radius: 5.0, // cm
                         currentDensity: density
                     ))
@@ -88,7 +142,7 @@ private final class PlacementOptimizer {
         return regions
     }
     
-    private func isLocalMinimum(density: Float, at x: Int, y: Int, in map: DensityMap) -> Bool {
+        private func isLocalMinimum(density: Float, at xCoordinate: Int, yCoordinate: Int, in map: DensityMap) -> Bool {
         let radius = 5
         var isMinimum = true
         
@@ -110,6 +164,16 @@ private final class PlacementOptimizer {
         return isMinimum
     }
     
+    /**
+     Optimizes the graft placement for a specific region.
+     
+     - Parameters:
+        - region: The region to optimize.
+        - targetDensity: The target density for the region.
+        - minSpacing: The minimum spacing between grafts.
+     
+     - Returns: A `GraftPlacement` object representing the optimized placement.
+     */
     private func optimizeRegion(
         _ region: GraftPlacement.Region,
         targetDensity: Float,
@@ -134,6 +198,15 @@ private final class PlacementOptimizer {
         )
     }
     
+    /**
+     Calculates the optimal directions for graft placement in a region.
+     
+     - Parameters:
+        - region: The region to calculate directions for.
+        - graftCount: The number of grafts to place.
+     
+     - Returns: An array of `SIMD3<Float>` objects representing the optimal directions.
+     */
     private func calculateOptimalDirections(
         for region: GraftPlacement.Region,
         graftCount: Int
@@ -144,9 +217,9 @@ private final class PlacementOptimizer {
         let phi = (1.0 + sqrt(5.0)) / 2.0
         let angleIncrement = Float.pi * 2 * phi
         
-        for i in 0..<graftCount {
-            let t = Float(i) / Float(graftCount)
-            let angle = angleIncrement * Float(i)
+        for index in 0..<graftCount {
+            let time = Float(index) / Float(graftCount)
+            let angle = angleIncrement * Float(index)
             
             // Calculate direction vector
             let direction = SIMD3<Float>(

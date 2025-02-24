@@ -1,5 +1,5 @@
-import SwiftUI
 import ComposableArchitecture
+import SwiftUI
 
 struct TreatmentView: View {
     let store: StoreOf<TreatmentFeature>

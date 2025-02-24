@@ -40,7 +40,7 @@ struct ForgotPasswordView: View {
                         .multilineTextAlignment(.center)
                 }
                 
-                Button(action: { Task { await viewModel.resetPassword() }}) {
+                Button(action: { Task { await viewModel.resetPassword() } }) {
                     Text("Send Reset Link")
                         .font(XcalpTypography.button)
                         .foregroundColor(.white)

@@ -1,5 +1,5 @@
-import Foundation
 import ARKit
+import Foundation
 
 // MARK: - Exercise Components
 struct PracticalExercise {
@@ -26,7 +26,7 @@ struct ExercisePerformance {
     let qualityMetrics: QualityMetrics
     
     var isSuccessful: Bool {
-        return accuracy >= 0.9 &&
+        accuracy >= 0.9 &&
                stability >= 0.85 &&
                coverage >= 0.95
     }
@@ -41,7 +41,7 @@ let defaultScanningExercises: [PracticalExercise] = [
         difficulty: .beginner,
         success_criteria: "Complete perimeter scan with 90% accuracy",
         validation: { performance in
-            return validatePerimeterScan(performance)
+            validatePerimeterScan(performance)
         }
     ),
     PracticalExercise(
@@ -51,7 +51,7 @@ let defaultScanningExercises: [PracticalExercise] = [
         difficulty: .intermediate,
         success_criteria: "Achieve 95% detail accuracy in target regions",
         validation: { performance in
-            return validateDetailedScan(performance)
+            validateDetailedScan(performance)
         }
     ),
     PracticalExercise(
@@ -61,7 +61,7 @@ let defaultScanningExercises: [PracticalExercise] = [
         difficulty: .advanced,
         success_criteria: "Complete pattern scan with 98% coverage",
         validation: { performance in
-            return validatePatternScan(performance)
+            validatePatternScan(performance)
         }
     )
 ]
@@ -261,7 +261,7 @@ extension ExercisePerformance {
     }
     
     func generateClinicalReport() -> ClinicalTrainingReport {
-        return ClinicalTrainingReport(
+        ClinicalTrainingReport(
             accuracy: accuracy,
             coverage: coverage,
             stability: stability,
@@ -462,7 +462,7 @@ let advancedPracticalTasks: [PracticalTask] = [
 // Updated validation functions with latest clinical standards
 extension ExercisePerformance {
     func validateAgainstClinicalStandards() -> Bool {
-        return accuracy >= ClinicalConstants.graftPlanningPrecision &&
+        accuracy >= ClinicalConstants.graftPlanningPrecision &&
                stability >= ClinicalConstants.surfaceConsistencyThreshold &&
                coverage >= ClinicalConstants.densityMappingAccuracy &&
                qualityMetrics.featureMatchConfidence >= ClinicalConstants.minFeatureMatchConfidence &&
@@ -472,19 +472,19 @@ extension ExercisePerformance {
 
 // MARK: - Validation Functions
 func validatePerimeterScan(_ performance: ExercisePerformance) -> Bool {
-    return performance.coverage >= 0.95 &&
+    performance.coverage >= 0.95 &&
            performance.stability >= 0.85 &&
            performance.accuracy >= 0.9
 }
 
 func validateDetailedScan(_ performance: ExercisePerformance) -> Bool {
-    return performance.coverage >= 0.98 &&
+    performance.coverage >= 0.98 &&
            performance.stability >= 0.9 &&
            performance.accuracy >= 0.95
 }
 
 func validatePatternScan(_ performance: ExercisePerformance) -> Bool {
-    return performance.coverage >= 0.99 &&
+    performance.coverage >= 0.99 &&
            performance.stability >= 0.95 &&
            performance.accuracy >= 0.98
 }

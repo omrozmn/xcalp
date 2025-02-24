@@ -1,5 +1,5 @@
-import Foundation
 import CryptoKit
+import Foundation
 
 public struct ValidationSystem {
     public static let shared = ValidationSystem()
@@ -52,8 +52,8 @@ public struct ValidationSystem {
     private func validateNormals(_ normals: [SIMD3<Float>]) -> Float {
         var consistencyCount = 0
         
-        for i in 0..<normals.count-1 {
-            let dot = simd_dot(normals[i], normals[i+1])
+        for i in 0..<normals.count - 1 {
+            let dot = simd_dot(normals[i], normals[i + 1])
             if dot > 0.7 { // Allow up to ~45 degree difference
                 consistencyCount += 1
             }
@@ -66,8 +66,8 @@ public struct ValidationSystem {
         // Check for degenerate triangles
         for i in stride(from: 0, to: indices.count, by: 3) {
             let v1 = vertices[Int(indices[i])]
-            let v2 = vertices[Int(indices[i+1])]
-            let v3 = vertices[Int(indices[i+2])]
+            let v2 = vertices[Int(indices[i + 1])]
+            let v3 = vertices[Int(indices[i + 2])]
             
             let edge1 = v2 - v1
             let edge2 = v3 - v1

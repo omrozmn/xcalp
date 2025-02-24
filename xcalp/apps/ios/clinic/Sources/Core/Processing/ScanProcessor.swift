@@ -1,5 +1,5 @@
-import Foundation
 import ARKit
+import Foundation
 import SensorCapabilityManager
 
 class ScanProcessor {
@@ -156,7 +156,7 @@ extension ScanProcessor {
     }
     
     private func extractCameraParameters(_ camera: ARCamera) -> CameraParameters {
-        return CameraParameters(
+        CameraParameters(
             intrinsics: camera.intrinsics,
             projectionMatrix: camera.projectionMatrix,
             transform: camera.transform,
@@ -199,7 +199,7 @@ extension ScanProcessor {
     
     private func alignFeatures(_ features: [ImageFeature], withPointCloud cloud: PointCloud, using camera: CameraParameters) -> [AlignedFeature] {
         // Implement feature alignment using camera parameters
-        return features.compactMap { feature in
+        features.compactMap { feature in
             guard let worldPoint = projectFeatureToWorld(
                 feature,
                 camera: camera,
@@ -235,7 +235,7 @@ extension ScanProcessor {
         
         // Enhance point cloud using aligned features
         enhanced = features.reduce(enhanced) { cloud, feature in
-            return addFeatureToCloud(
+            addFeatureToCloud(
                 cloud,
                 feature: feature,
                 weight: enhancementFactor

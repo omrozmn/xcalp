@@ -1,6 +1,6 @@
-import XCTest
 import CryptoKit
 @testable import XcalpClinicCore
+import XCTest
 
 final class HIPAAComplianceTests: XCTestCase {
     var complianceManager: HIPAAComplianceManager!
@@ -138,7 +138,7 @@ final class HIPAAComplianceTests: XCTestCase {
         let accessLevel: AccessControlLevel
         
         var identifier: String { id }
-        var phi: [String : Any] {
+        var phi: [String: Any] {
             [
                 "name": name,
                 "ssn": ssn,

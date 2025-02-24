@@ -28,7 +28,9 @@ class HairGrowthModel {
         config.computeUnits = configuration.computeUnits
         
         // Load compiled model
-        let modelURL = Bundle.module.url(forResource: "HairGrowthNet", withExtension: "mlmodelc")!
+        guard let modelURL = Bundle.module.url(forResource: "HairGrowthNet", withExtension: "mlmodelc") else {
+            throw NSError(domain: "ModelError", code: 0, userInfo: [NSLocalizedDescriptionKey: "Failed to find model URL"])
+        }
         self.model = try MLModel(contentsOf: modelURL, configuration: config)
         
         // Initialize supporting components
@@ -110,10 +112,10 @@ class HairGrowthModel {
 }
 
 enum GrowthPhase: String {
-    case telogen = "telogen"
-    case earlyAnagen = "earlyAnagen"
-    case midAnagen = "midAnagen"
-    case lateAnagen = "lateAnagen"
+    case telogen
+    case earlyAnagen
+    case midAnagen
+    case lateAnagen
 }
 
 enum GrowthModelError: Error {
@@ -129,7 +131,7 @@ private class GrowthProjectionEngine {
 private class MetricAnalyzer {
     func analyzeCurrentState() async throws -> CurrentState {
         // Implement current state analysis
-        return CurrentState(
+        CurrentState(
             density: 0,
             thickness: 0,
             length: 0,

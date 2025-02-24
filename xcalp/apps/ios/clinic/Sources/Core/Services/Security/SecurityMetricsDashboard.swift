@@ -1,5 +1,5 @@
-import Foundation
 import Combine
+import Foundation
 
 public final class SecurityMetricsDashboard {
     public static let shared = SecurityMetricsDashboard()
@@ -67,7 +67,7 @@ public final class SecurityMetricsDashboard {
     
     private func calculateAccessAttempts() async throws -> AccessAttempts {
         // Implementation would analyze access logs
-        return AccessAttempts()
+        AccessAttempts()
     }
     
     private func calculateEncryptionStatus() async throws -> EncryptionStatus {
@@ -91,12 +91,12 @@ public final class SecurityMetricsDashboard {
     
     private func calculateAuditStatus() async throws -> AuditStatus {
         // Implementation would analyze audit logs
-        return AuditStatus()
+        AuditStatus()
     }
     
     private func calculateComplianceStatus() async throws -> ComplianceStatus {
         // Implementation would check HIPAA compliance
-        return ComplianceStatus()
+        ComplianceStatus()
     }
 }
 

@@ -118,7 +118,7 @@ extension ScanningClient {
 
 extension ScanningClient.live {
     public var captureScan: @Sendable () async throws -> Data {
-        return {
+        {
             let perfID = PerformanceMonitor.shared.startMeasuring(
                 "scanCapture",
                 category: "scanning"

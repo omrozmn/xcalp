@@ -40,7 +40,7 @@ final class PerformanceMonitor: ObservableObject {
     private func updateMemoryUsage() async {
         // Get memory usage from process info
         var info = mach_task_basic_info()
-        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size)/4
+        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
         
         let kerr: kern_return_t = withUnsafeMutablePointer(to: &info) {
             $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
@@ -65,7 +65,7 @@ final class PerformanceMonitor: ObservableObject {
     }
     
     func checkPerformanceRequirements() -> Bool {
-        return memoryUsage < 200 && // Less than 200MB
+        memoryUsage < 200 && // Less than 200MB
                frameRate > 30 && // Greater than 30fps
                processingTime < 5 // Less than 5s
     }

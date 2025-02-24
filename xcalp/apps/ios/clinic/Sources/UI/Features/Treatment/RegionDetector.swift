@@ -1,9 +1,9 @@
-import Foundation
 import CoreML
-import Vision
-import simd
+import Foundation
 import Metal
 import MetalKit
+import simd
+import Vision
 
 public final class RegionDetector {
     private let segmentationModel: VNCoreMLModel
@@ -42,7 +42,7 @@ public final class RegionDetector {
             let depthMap = try await convertMeshToDepthMap(meshData)
             
             // Run ML-based segmentation
-            let segmentationRequest = VNCoreMLRequest(model: segmentationModel) { [weak self] request, error in
+            let segmentationRequest = VNCoreMLRequest(model: segmentationModel) { [weak self] _, error in
                 guard error == nil else {
                     throw RegionError.segmentationFailed(error!.localizedDescription)
                 }
@@ -72,7 +72,6 @@ public final class RegionDetector {
             )
             
             return matchedRegions
-            
         } catch {
             PerformanceMonitor.shared.endMeasuring(
                 "regionDetection",
@@ -511,6 +510,6 @@ private final class RegionAnalyzer {
     private func marchingSquares(_ vertices: [SIMD3<Float>]) throws -> [UInt32] {
         // Implement marching squares algorithm for boundary extraction
         // For now, return simple boundary
-        return Array(0..<UInt32(vertices.count))
+        Array(0..<UInt32(vertices.count))
     }
 }

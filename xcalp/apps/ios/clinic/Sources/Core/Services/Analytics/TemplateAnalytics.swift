@@ -39,7 +39,7 @@ actor TemplateAnalytics {
     }
     
     func getTemplateInsights(_ templateId: UUID) async -> TemplateUsageStats? {
-        return await getStats(for: templateId)
+        await getStats(for: templateId)
     }
     
     private func getStats(for templateId: UUID) async -> TemplateUsageStats {
@@ -69,7 +69,7 @@ actor TemplateAnalytics {
     }
     
     private func statsKey(for templateId: UUID) -> String {
-        return "template_stats_\(templateId.uuidString)"
+        "template_stats_\(templateId.uuidString)"
     }
     
     private func getDensityRange(from template: TreatmentTemplate) -> ClosedRange<Double> {
@@ -90,6 +90,6 @@ private actor AnalyticsStorage {
     }
     
     func load<T: Codable>(_ type: T.Type, forKey key: String) async throws -> T? {
-        return try await storage.load(type, forKey: key)
+        try await storage.load(type, forKey: key)
     }
 }

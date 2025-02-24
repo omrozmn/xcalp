@@ -1,5 +1,5 @@
-import SwiftUI
 import ComposableArchitecture
+import SwiftUI
 
 public struct SettingsView: View {
     let store: StoreOf<SettingsFeature>

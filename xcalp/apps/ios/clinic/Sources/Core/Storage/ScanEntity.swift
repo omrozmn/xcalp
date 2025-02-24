@@ -1,5 +1,5 @@
-import Foundation
 import CoreData
+import Foundation
 
 @objc(ScanEntity)
 public class ScanEntity: NSManagedObject {

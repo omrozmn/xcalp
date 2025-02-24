@@ -1,5 +1,5 @@
-import Foundation
 import CoreML
+import Foundation
 import Numerics
 
 /// Handles clinical analysis of scanned data
@@ -13,7 +13,7 @@ public final class ClinicalAnalysis {
     /// - Returns: Hair density analysis results
     public func analyzeDensity(scanData: Data) async throws -> DensityAnalysis {
         // TODO: Implement ML-based density analysis
-        return DensityAnalysis(
+        DensityAnalysis(
             overallDensity: 0,
             regions: [:],
             recommendations: []
@@ -27,7 +27,7 @@ public final class ClinicalAnalysis {
     /// - Returns: Graft placement plan
     public func calculateGraftPlacement(scanData: Data, targetDensity: Double) async throws -> GraftPlan {
         // TODO: Implement graft placement algorithm
-        return GraftPlan(
+        GraftPlan(
             totalGrafts: 0,
             regions: [:],
             directions: []
@@ -39,7 +39,7 @@ public final class ClinicalAnalysis {
     /// - Returns: Whether scan is valid for clinical use
     public func validateScanQuality(_ scanData: Data) async -> Bool {
         // TODO: Implement scan quality validation
-        return true
+        true
     }
 }
 

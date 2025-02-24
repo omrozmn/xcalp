@@ -1,6 +1,6 @@
+import ARKit
 import Foundation
 import UIKit
-import ARKit
 
 class TrainingModuleManager {
     // Training modules configuration
@@ -94,7 +94,7 @@ class TrainingModuleManager {
                                     description: "Practice holding device at correct distance",
                                     success_criteria: "Maintain 25±5cm distance for 30 seconds",
                                     validation: { performance in
-                                        return validatePositioning(performance)
+                                        validatePositioning(performance)
                                     }
                                 )
                             ],
@@ -134,7 +134,7 @@ class TrainingModuleManager {
                     id: "scan_quality",
                     description: "Scan quality meets clinical standards",
                     validator: { performance in
-                        return validateScanQuality(performance)
+                        validateScanQuality(performance)
                     }
                 )
             ],
@@ -154,7 +154,7 @@ class TrainingModuleManager {
         var competencyLevel: CompetencyLevel
         
         var isCompleted: Bool {
-            return hasCompletedAllSteps &&
+            hasCompletedAllSteps &&
                    hasPassedAllAssessments &&
                    hasDemonstratedCompetency
         }
@@ -200,7 +200,7 @@ class TrainingModuleManager {
     
     private func calculateProgressMetrics(_ progress: [TrainingProgress]) -> ProgressMetrics {
         // Calculate completion rates, time spent, and mastery levels
-        return ProgressMetrics(
+        ProgressMetrics(
             completionRate: calculateCompletionRate(progress),
             timeInvestment: calculateTimeInvestment(progress),
             masteryAchieved: calculateMasteryLevels(progress)

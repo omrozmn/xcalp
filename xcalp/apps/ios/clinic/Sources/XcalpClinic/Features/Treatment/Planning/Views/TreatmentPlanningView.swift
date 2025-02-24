@@ -1,6 +1,6 @@
-import SwiftUI
 import ComposableArchitecture
 import SceneKit
+import SwiftUI
 
 struct TreatmentPlanningView: View {
     let store: StoreOf<TreatmentPlanningFeature>

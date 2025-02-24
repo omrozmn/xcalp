@@ -1,5 +1,5 @@
-import Foundation
 import CryptoKit
+import Foundation
 import KeychainAccess
 
 public final class HIPAAEncryptionService {
@@ -104,7 +104,7 @@ public struct EncryptedData: Codable {
     let timestamp: Date
     
     public var metadata: [String: Any] {
-        return [
+        [
             "type": type.rawValue,
             "timestamp": timestamp,
             "size": data.count

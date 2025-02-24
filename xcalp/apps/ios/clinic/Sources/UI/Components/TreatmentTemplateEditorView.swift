@@ -1,5 +1,5 @@
-import SwiftUI
 import ComposableArchitecture
+import SwiftUI
 
 struct TreatmentTemplateEditorView: View {
     @ObservedObject var viewStore: ViewStore<TreatmentTemplateFeature.State, TreatmentTemplateFeature.Action>

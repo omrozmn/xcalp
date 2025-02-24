@@ -1,5 +1,5 @@
-import SwiftUI
 import Combine
+import SwiftUI
 
 public final class AnimationManager {
     public static let shared = AnimationManager()
@@ -52,12 +52,13 @@ public final class AnimationManager {
         public static let cardExpansion = Animation.spring(response: 0.45, dampingFraction: 0.7)
     }
     
-    // Gesture animation states
+    // Enhanced gesture animation states
     public enum GestureState {
         case inactive
         case pressing
         case dragging(translation: CGSize)
         case releasing
+        case longPress
         
         var scale: CGFloat {
             switch self {
@@ -69,6 +70,8 @@ public final class AnimationManager {
                 return 0.95
             case .releasing:
                 return 1.0
+            case .longPress:
+                return 0.92
             }
         }
         
@@ -82,28 +85,91 @@ public final class AnimationManager {
                 return 0.8
             case .releasing:
                 return 1.0
+            case .longPress:
+                return 0.7
+            }
+        }
+        
+        var blur: CGFloat {
+            switch self {
+            case .inactive, .releasing:
+                return 0
+            case .pressing, .dragging:
+                return 3
+            case .longPress:
+                return 5
+            }
+        }
+        
+        var animation: Animation {
+            switch self {
+            case .inactive:
+                return .spring(response: 0.35, dampingFraction: 0.65)
+            case .pressing:
+                return .spring(response: 0.25, dampingFraction: 0.7)
+            case .dragging:
+                return .spring(response: 0.45, dampingFraction: 0.8)
+            case .releasing:
+                return .spring(response: 0.4, dampingFraction: 0.6)
+            case .longPress:
+                return .spring(response: 0.3, dampingFraction: 0.75)
             }
         }
     }
     
-    // ViewModifier for animated gestures
+    // Enhanced press gesture modifier
     public struct AnimatedPressGesture: ViewModifier {
         @GestureState private var gestureState = GestureState.inactive
         let action: () -> Void
+        let longPressAction: (() -> Void)?
+        let feedbackStyle: UIImpactFeedbackGenerator.FeedbackStyle
+        
+        public init(
+            action: @escaping () -> Void,
+            longPressAction: (() -> Void)? = nil,
+            feedbackStyle: UIImpactFeedbackGenerator.FeedbackStyle = .medium
+        ) {
+            self.action = action
+            self.longPressAction = longPressAction
+            self.feedbackStyle = feedbackStyle
+        }
         
         public func body(content: Content) -> some View {
             content
                 .scaleEffect(gestureState.scale)
                 .opacity(gestureState.opacity)
-                .animation(.spring(response: 0.35, dampingFraction: 0.65), value: gestureState)
+                .blur(radius: gestureState.blur)
+                .animation(gestureState.animation, value: gestureState)
                 .gesture(
-                    LongPressGesture(minimumDuration: 0)
-                        .updating($gestureState) { currentState, gestureState, _ in
+                    LongPressGesture(minimumDuration: longPressAction != nil ? 0.5 : 0)
+                        .updating($gestureState) { _, gestureState, _ in
                             gestureState = .pressing
+                            let generator = UIImpactFeedbackGenerator(style: feedbackStyle)
+                            generator.prepare()
+                            generator.impactOccurred()
                         }
                         .onEnded { _ in
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.65)) {
-                                action()
+                            if let longPressAction = longPressAction {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.65)) {
+                                    longPressAction()
+                                }
+                            } else {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.65)) {
+                                    action()
+                                }
+                            }
+                        }
+                )
+                .simultaneousGesture(
+                    TapGesture()
+                        .onEnded { _ in
+                            if longPressAction == nil {
+                                let generator = UIImpactFeedbackGenerator(style: feedbackStyle)
+                                generator.prepare()
+                                generator.impactOccurred()
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.65)) {
+                                    action()
+                                }
                             }
                         }
                 )

@@ -122,11 +122,11 @@ struct TreatmentFeature {
     
     private func loadTreatmentForPatient(_ patientId: UUID) async throws -> State.Treatment? {
         // TODO: Implement actual loading from storage
-        return nil
+        nil
     }
     
     private func saveTreatment(_ treatment: State.Treatment) async throws -> State.Treatment {
         // TODO: Implement actual saving to storage
-        return treatment
+        treatment
     }
 }

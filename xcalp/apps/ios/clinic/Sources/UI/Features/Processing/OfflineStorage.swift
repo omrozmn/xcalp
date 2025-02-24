@@ -1,6 +1,6 @@
-import Foundation
 import CoreData
 import Dependencies
+import Foundation
 
 public struct OfflineStorage {
     public var storeOperation: @Sendable (ProcessingOperation) async throws -> Void

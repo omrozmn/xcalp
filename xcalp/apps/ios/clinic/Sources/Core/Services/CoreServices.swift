@@ -1,5 +1,5 @@
-import Foundation
 import Dependencies
+import Foundation
 
 /// Core services manifest for XcalpClinic
 enum CoreServices {

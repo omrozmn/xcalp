@@ -1,6 +1,6 @@
-import XCTest
 import ComposableArchitecture
 @testable import XcalpClinic
+import XCTest
 
 final class ScanningFeatureTests: XCTestCase {
     func testDeviceCapabilityCheck() async {

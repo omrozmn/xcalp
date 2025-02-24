@@ -1,5 +1,5 @@
-import SwiftUI
 import Dependencies
+import SwiftUI
 
 struct RegionEditorView: View {
     let region: TreatmentRegion?

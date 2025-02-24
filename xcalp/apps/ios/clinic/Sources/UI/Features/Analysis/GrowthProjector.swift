@@ -1,5 +1,5 @@
-import Foundation
 import CoreML
+import Foundation
 import Vision
 
 public final class GrowthProjector {

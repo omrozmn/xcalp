@@ -1,5 +1,5 @@
-import SwiftUI
 import ComposableArchitecture
+import SwiftUI
 
 struct ParameterCustomizationView: View {
     let template: TreatmentTemplate
@@ -159,7 +159,7 @@ private struct NumericParameterInput: View {
                 EmptyView()
             }
         }
-        .onChange(of: value) { newValue in
+        .onChange(of: value) { _ in
             if !isFocused {
                 validateAndUpdate()
             }

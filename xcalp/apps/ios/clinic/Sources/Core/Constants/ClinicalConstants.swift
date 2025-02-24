@@ -70,6 +70,39 @@ struct ClinicalConstants {
     static let maxCorrespondenceDistance: Float = 0.01  // 1cm maximum correspondence distance
 }
 
+public enum ClinicalConstants {
+    // Point cloud density requirements (points per cubic meter)
+    public static let optimalPointDensity: Float = 1000.0
+    public static let minimumPointDensity: Float = 500.0
+    
+    // Mesh quality thresholds
+    public static let minimumMeshConfidence: Float = 0.7
+    public static let minimumSurfaceNormalConsistency: Float = 0.8
+    public static let maximumDepthDiscontinuity: Float = 0.1 // meters
+    
+    // Feature detection
+    public static let minFeatureMatchConfidence: Float = 0.7
+    public static let photogrammetryMinFeatures: Int = 100
+    public static let maxReprojectionError: Float = 0.01
+    public static let minInlierRatio: Float = 0.6
+    
+    // Fusion requirements
+    public static let minimumFusionQuality: Float = 0.75
+    public static let minimumPhotogrammetryConfidence: Float = 0.6
+    
+    // Clinical accuracy requirements
+    public static let graftPlanningPrecision: Float = 0.98
+    public static let featurePreservationThreshold: Float = 0.95
+    
+    // LiDAR specific
+    public static let lidarMinimumPointDensity: Float = 800.0
+    public static let lidarConfidenceThreshold: Float = 0.7
+    
+    // TrueDepth specific
+    public static let trueDepthMinimumPointDensity: Float = 400.0
+    public static let trueDepthConfidenceThreshold: Float = 0.6
+}
+
 enum ScanningQualityThresholds {
     // LiDAR quality thresholds
     static let minimumLidarPoints: Int = 1000

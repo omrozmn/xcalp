@@ -1,5 +1,5 @@
-import XCTest
 @testable import XcalpClinic
+import XCTest
 
 final class AnalysisDataPersistenceTests: XCTestCase {
     var dataManager: AnalysisDataManager!

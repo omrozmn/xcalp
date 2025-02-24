@@ -1,5 +1,5 @@
-import SwiftUI
 import Combine
+import SwiftUI
 
 public final class TransitionAnimationCoordinator: ObservableObject {
     public static let shared = TransitionAnimationCoordinator()

@@ -1,5 +1,7 @@
-import Foundation
 import ComposableArchitecture
+import Core
+import CoreImage
+import Foundation
 
 public struct AuthFeature: Reducer {
     public struct State: Equatable {
@@ -13,6 +15,10 @@ public struct AuthFeature: Reducer {
         public var isBiometricEnabled: Bool
         public var requiresMFA: Bool
         public var mfaPendingID: String?
+        public var mfaSetupData: MFASetupResponse?
+        public var mfaQRCode: CIImage?
+        public var showRecoveryCodes: Bool
+        public var recoveryCodes: [String]
         
         public init(
             username: String = "",
@@ -24,7 +30,11 @@ public struct AuthFeature: Reducer {
             biometricType: BiometricType = .none,
             isBiometricEnabled: Bool = false,
             requiresMFA: Bool = false,
-            mfaPendingID: String? = nil
+            mfaPendingID: String? = nil,
+            mfaSetupData: MFASetupResponse? = nil,
+            mfaQRCode: CIImage? = nil,
+            showRecoveryCodes: Bool = false,
+            recoveryCodes: [String] = []
         ) {
             self.username = username
             self.password = password
@@ -36,6 +46,10 @@ public struct AuthFeature: Reducer {
             self.isBiometricEnabled = isBiometricEnabled
             self.requiresMFA = requiresMFA
             self.mfaPendingID = mfaPendingID
+            self.mfaSetupData = mfaSetupData
+            self.mfaQRCode = mfaQRCode
+            self.showRecoveryCodes = showRecoveryCodes
+            self.recoveryCodes = recoveryCodes
         }
     }
     
@@ -48,8 +62,16 @@ public struct AuthFeature: Reducer {
         case checkBiometricSupport
         case biometricAuthTapped
         case biometricAuthResponse(TaskResult<Bool>)
+        case setupMFATapped
+        case setupMFAResponse(TaskResult<MFASetupResponse>)
+        case generateQRCode(String)
+        case generateQRCodeResponse(TaskResult<CIImage>)
         case verifyMFAButtonTapped
         case verifyMFAResponse(TaskResult<AuthResponse>)
+        case generateNewRecoveryCodesTapped
+        case generateNewRecoveryCodesResponse(TaskResult<[String]>)
+        case showRecoveryCodesTapped
+        case hideRecoveryCodesTapped
         case forgotPasswordTapped
         case logoutButtonTapped
         case errorDismissed
@@ -108,6 +130,47 @@ public struct AuthFeature: Reducer {
                 state.error = .loginFailed(error)
                 return .none
                 
+            case .setupMFATapped:
+                state.isLoading = true
+                return .run { send in
+                    await send(.setupMFAResponse(
+                        TaskResult {
+                            try await authClient.setupMFA(.authenticatorApp)
+                        }
+                    ))
+                }
+                
+            case let .setupMFAResponse(.success(response)):
+                state.isLoading = false
+                state.mfaSetupData = response
+                state.recoveryCodes = response.recoveryCodes
+                state.showRecoveryCodes = true
+                return .run { send in
+                    await send(.generateQRCode(response.otpAuthURL))
+                }
+                
+            case let .setupMFAResponse(.failure(error)):
+                state.isLoading = false
+                state.error = .loginFailed(error)
+                return .none
+                
+            case let .generateQRCode(url):
+                return .run { send in
+                    await send(.generateQRCodeResponse(
+                        TaskResult {
+                            try authClient.generateQRCode(url)
+                        }
+                    ))
+                }
+                
+            case let .generateQRCodeResponse(.success(qrCode)):
+                state.mfaQRCode = qrCode
+                return .none
+                
+            case let .generateQRCodeResponse(.failure(error)):
+                state.error = .loginFailed(error)
+                return .none
+                
             case .verifyMFAButtonTapped:
                 state.isLoading = true
                 return .run { [code = state.mfaCode] send in
@@ -123,11 +186,43 @@ public struct AuthFeature: Reducer {
                 state.isAuthenticated = true
                 state.requiresMFA = false
                 state.mfaPendingID = nil
+                state.mfaSetupData = nil
+                state.mfaQRCode = nil
+                state.showRecoveryCodes = false
                 return .none
                 
             case let .verifyMFAResponse(.failure(error)):
                 state.isLoading = false
                 state.error = .mfaFailed
+                return .none
+                
+            case .generateNewRecoveryCodesTapped:
+                state.isLoading = true
+                return .run { send in
+                    await send(.generateNewRecoveryCodesResponse(
+                        TaskResult {
+                            try await authClient.generateNewRecoveryCodes()
+                        }
+                    ))
+                }
+                
+            case let .generateNewRecoveryCodesResponse(.success(codes)):
+                state.isLoading = false
+                state.recoveryCodes = codes
+                state.showRecoveryCodes = true
+                return .none
+                
+            case let .generateNewRecoveryCodesResponse(.failure(error)):
+                state.isLoading = false
+                state.error = .loginFailed(error)
+                return .none
+                
+            case .showRecoveryCodesTapped:
+                state.showRecoveryCodes = true
+                return .none
+                
+            case .hideRecoveryCodesTapped:
+                state.showRecoveryCodes = false
                 return .none
                 
             case .checkBiometricSupport:
@@ -176,13 +271,17 @@ public struct AuthFeature: Reducer {
                 return .none
                 
             case .forgotPasswordTapped:
-                // Handle navigation to forgot password
                 return .none
                 
             case .logoutButtonTapped:
                 state.isAuthenticated = false
                 state.username = ""
                 state.password = ""
+                state.mfaCode = ""
+                state.mfaSetupData = nil
+                state.mfaQRCode = nil
+                state.showRecoveryCodes = false
+                state.recoveryCodes = []
                 return .run { _ in
                     try await authClient.logout()
                 }
@@ -224,4 +323,9 @@ public enum BiometricType {
 public struct Credentials: Equatable {
     public let username: String
     public let password: String
+}
+
+public struct MFASetupResponse: Equatable {
+    public let otpAuthURL: String
+    public let recoveryCodes: [String]
 }

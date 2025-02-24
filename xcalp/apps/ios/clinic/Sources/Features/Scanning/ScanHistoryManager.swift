@@ -1,5 +1,5 @@
-import SwiftUI
 import CoreData
+import SwiftUI
 
 public struct ScanHistoryManager {
     public struct ScanVersion: Identifiable, Equatable {
@@ -96,7 +96,7 @@ public struct ScanHistoryManager {
     
     private func compressMeshData(_ mesh: ARMeshAnchor) async throws -> Data {
         // Compress mesh data using efficient algorithm
-        return try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
                     let vertices = mesh.geometry.vertices

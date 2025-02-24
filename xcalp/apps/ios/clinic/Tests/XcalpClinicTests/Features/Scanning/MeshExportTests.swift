@@ -1,6 +1,6 @@
-import XCTest
-@testable import XcalpClinic
 import ModelIO
+@testable import XcalpClinic
+import XCTest
 
 final class MeshExportTests: XCTestCase {
     var processor: MeshProcessor!

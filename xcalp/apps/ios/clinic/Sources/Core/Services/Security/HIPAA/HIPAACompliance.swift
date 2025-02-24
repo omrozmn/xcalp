@@ -1,5 +1,5 @@
-import Foundation
 import CryptoKit
+import Foundation
 import LocalAuthentication
 
 /// HIPAA Compliance Manager that ensures data protection and access control

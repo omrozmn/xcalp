@@ -1,6 +1,6 @@
+import CryptoKit
 import Foundation
 import Logging
-import CryptoKit
 
 /// HIPAA-compliant audit logging system
 public final class HIPAALogger {

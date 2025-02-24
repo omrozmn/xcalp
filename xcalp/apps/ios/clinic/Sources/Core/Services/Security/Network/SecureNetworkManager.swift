@@ -1,6 +1,6 @@
+import CryptoKit
 import Foundation
 import Network
-import CryptoKit
 import Security
 
 public final class SecureNetworkManager {
@@ -77,11 +77,11 @@ public final class SecureNetworkManager {
     }
     
     private func sign(_ data: Data) throws -> Data {
-        return try encryptionManager.sign(data)
+        try encryptionManager.sign(data)
     }
     
     private func verifySignature(_ signature: Data, for data: Data) throws -> Bool {
-        return try encryptionManager.verify(signature: signature, for: data)
+        try encryptionManager.verify(signature: signature, for: data)
     }
 }
 

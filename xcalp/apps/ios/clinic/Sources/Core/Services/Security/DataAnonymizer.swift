@@ -1,5 +1,5 @@
-import Foundation
 import CryptoKit
+import Foundation
 
 public final class DataAnonymizer {
     public static let shared = DataAnonymizer()
@@ -188,7 +188,7 @@ public final class DataAnonymizer {
     
     private func generalizeZipCode(_ zip: String) -> String {
         // Keep only first 3 digits
-        return String(zip.prefix(3)) + "XX"
+        String(zip.prefix(3)) + "XX"
     }
     
     private func generalizeIncome(_ income: Double) -> String {
