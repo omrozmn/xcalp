@@ -7,6 +7,8 @@ public enum ClinicEndpoint: APIEndpoint {
     case saveTreatmentPlan(patientId: String, planData: [String: Any])
     case getPatientProfile(patientId: String)
     case updatePatientProfile(patientId: String, profileData: [String: Any])
+    case getDashboardSummary
+    case getDashboardStats
     
     public var baseURL: String {
         #if DEBUG
@@ -30,12 +32,16 @@ public enum ClinicEndpoint: APIEndpoint {
             return "/patients/\(patientId)"
         case .updatePatientProfile(let patientId, _):
             return "/patients/\(patientId)"
+        case .getDashboardSummary:
+            return "/dashboard/summary"
+        case .getDashboardStats:
+            return "/dashboard/stats"
         }
     }
     
     public var method: HTTPMethod {
         switch self {
-        case .getScanHistory, .getTreatmentPlan, .getPatientProfile:
+        case .getScanHistory, .getTreatmentPlan, .getPatientProfile, .getDashboardSummary, .getDashboardStats:
             return .get
         case .uploadScan, .saveTreatmentPlan:
             return .post
@@ -46,7 +52,7 @@ public enum ClinicEndpoint: APIEndpoint {
     
     public var body: [String: Any]? {
         switch self {
-        case .getScanHistory, .getTreatmentPlan, .getPatientProfile:
+        case .getScanHistory, .getTreatmentPlan, .getPatientProfile, .getDashboardSummary, .getDashboardStats:
             return nil
         case .uploadScan(_, let scanData):
             return [

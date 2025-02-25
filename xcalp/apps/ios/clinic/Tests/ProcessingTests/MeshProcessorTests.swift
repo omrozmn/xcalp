@@ -1,4 +1,5 @@
 import XCTest
+import ARKit
 @testable import XcalpClinic
 
 final class MeshProcessorTests: XCTestCase {
@@ -50,9 +51,14 @@ final class MeshProcessorTests: XCTestCase {
     }
     
     // Helper functions
-    private func createSamplePointCloud(density: Float) -> ARPointCloud {
+    private func createSamplePointCloud(density: Float) -> [simd_float3] {
         // Create a sample point cloud for testing
         // This is a mock implementation - replace with actual test data
-        return ARPointCloud()
+        let numPoints = Int(density)
+        var points = [simd_float3]()
+        for _ in 0..<numPoints {
+            points.append(simd_float3(Float.random(in: 0...1), Float.random(in: 0...1), Float.random(in: 0...1)))
+        }
+        return points
     }
 }

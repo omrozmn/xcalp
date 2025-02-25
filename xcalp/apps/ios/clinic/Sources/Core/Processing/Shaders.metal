@@ -87,3 +87,112 @@ kernel void calculatePointDensityKernel(device const Point* points [[ buffer(0) 
     float volume = 4.0f/3.0f * M_PI_F * radius * radius * radius;
     density[id] = float(neighborCount) / volume;
 }
+
+// Add quality assessment kernels
+kernel void calculateQualityMetricsKernel(
+    device const Point* points [[buffer(0)]],
+    device float* qualityScores [[buffer(1)]],
+    device const float* parameters [[buffer(2)]],
+    uint id [[thread_position_in_grid]]
+) {
+    const float searchRadius = parameters[0];
+    Point centerPoint = points[id];
+    
+    // Initialize quality metrics
+    float localDensity = 0;
+    float normalConsistency = 0;
+    float depthContinuity = 0;
+    int neighborCount = 0;
+    
+    // Calculate local quality metrics
+    for (uint i = 0; i < id; i++) {
+        float3 diff = points[i].position - centerPoint.position;
+        float dist = length(diff);
+        
+        if (dist < searchRadius) {
+            // Contribute to local density
+            localDensity += 1.0;
+            
+            // Normal consistency
+            float normalAlignment = dot(normalize(points[i].normal), normalize(centerPoint.normal));
+            normalConsistency += normalAlignment;
+            
+            // Depth continuity
+            float depthDiff = abs(points[i].position.z - centerPoint.position.z);
+            depthContinuity += 1.0 / (1.0 + depthDiff);
+            
+            neighborCount++;
+        }
+    }
+    
+    // Normalize metrics
+    if (neighborCount > 0) {
+        localDensity /= (M_PI_F * searchRadius * searchRadius); // points per unit area
+        normalConsistency /= float(neighborCount);
+        depthContinuity /= float(neighborCount);
+        
+        // Combine metrics with weights
+        float qualityScore = localDensity * 0.4 + 
+                           normalConsistency * 0.3 + 
+                           depthContinuity * 0.3;
+                           
+        qualityScores[id] = qualityScore;
+    } else {
+        qualityScores[id] = 0.0;
+    }
+}
+
+// Enhanced bilateral filter for noise reduction
+kernel void adaptiveBilateralFilterKernel(
+    device const Point* input [[buffer(0)]],
+    device Point* output [[buffer(1)]],
+    device const float* parameters [[buffer(2)]],
+    uint id [[thread_position_in_grid]]
+) {
+    const float spatialSigma = parameters[0];
+    const float rangeSigma = parameters[1];
+    const float confidenceThreshold = parameters[2];
+    Point centerPoint = input[id];
+    
+    float3 filteredPosition = 0;
+    float3 filteredNormal = 0;
+    float weightSum = 0;
+    
+    // Adapt filter strength based on point confidence
+    float adaptiveSpatialSigma = spatialSigma;
+    float adaptiveRangeSigma = rangeSigma;
+    
+    if (centerPoint.confidence < confidenceThreshold) {
+        // Increase filter strength for low confidence points
+        adaptiveSpatialSigma *= 1.5;
+        adaptiveRangeSigma *= 1.5;
+    }
+    
+    for (uint i = 0; i < id; i++) {
+        Point neighbor = input[i];
+        float3 diff = neighbor.position - centerPoint.position;
+        float spatialDist = length(diff);
+        
+        if (spatialDist > adaptiveSpatialSigma * 3) continue; // 3-sigma cutoff
+        
+        float rangeDist = abs(neighbor.confidence - centerPoint.confidence);
+        
+        // Calculate bilateral weights
+        float spatialWeight = exp(-spatialDist * spatialDist / (2 * adaptiveSpatialSigma * adaptiveSpatialSigma));
+        float rangeWeight = exp(-rangeDist * rangeDist / (2 * adaptiveRangeSigma * adaptiveRangeSigma));
+        float weight = spatialWeight * rangeWeight;
+        
+        filteredPosition += neighbor.position * weight;
+        filteredNormal += neighbor.normal * weight;
+        weightSum += weight;
+    }
+    
+    if (weightSum > 0) {
+        output[id].position = filteredPosition / weightSum;
+        output[id].normal = normalize(filteredNormal / weightSum);
+        // Preserve original confidence
+        output[id].confidence = centerPoint.confidence;
+    } else {
+        output[id] = centerPoint;
+    }
+}

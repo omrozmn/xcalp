@@ -1,4 +1,6 @@
 import Foundation
+import UIKit
+import ARKit
 import Metal
 import MetalKit
 import simd
@@ -18,6 +20,8 @@ final class MeshProcessor {
         performanceMonitor.startMeasuring("MeshGeneration")
         
         do {
+            // Use ARKit to capture point cloud
+            
             // Validate input point cloud
             try validatePointCloud(pointCloud)
             

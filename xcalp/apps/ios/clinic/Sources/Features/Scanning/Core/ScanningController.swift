@@ -40,7 +40,7 @@ final class ScanningController: ObservableObject {
         }
         
         fallbackAttempts = 0
-        currentMode = .lidar
+        currentMode = determineOptimalScanningMode()
         await startScanningMode()
     }
     
@@ -431,6 +431,134 @@ final class ScanningController: ObservableObject {
             
             group.cancelAll()
             return result
+        }
+    }
+    
+    // Update scanning mode selection with adaptive strategy
+    private func determineOptimalScanningMode() -> ScanningMode {
+        // Check device capabilities
+        let hasLiDAR = ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh)
+        let hasTrueDepth = AVCaptureDevice.default(.builtInTrueDepthCamera, for: .video, position: .front) != nil
+        
+        if hasLiDAR {
+            return .lidar
+        } else if hasTrueDepth {
+            return .hybrid
+        } else {
+            return .photogrammetry
+        }
+    }
+
+    private func updateQualityMetrics(_ frame: ARFrame) async throws {
+        guard isScanning else { return }
+        
+        // Get depth and confidence data
+        guard let depthMap = frame.sceneDepth?.depthMap,
+              let confidenceMap = frame.sceneDepth?.confidenceMap else {
+            throw ScanningError.invalidFrameData
+        }
+        
+        // Calculate frame quality metrics
+        let frameQuality = try await validateFrameQuality(
+            depthMap: depthMap,
+            confidenceMap: confidenceMap
+        )
+        
+        // Update quality tracking
+        qualityTracker.addFrameQuality(frameQuality)
+        
+        // Check if quality is consistently low
+        if qualityTracker.isQualityConsistentlyLow {
+            handleLowQuality()
+        }
+    }
+
+    private func handleLowQuality() {
+        // If quality is consistently low, try fallback strategies
+        fallbackAttempts += 1
+        
+        if fallbackAttempts <= maxFallbackAttempts {
+            switch currentScanningMode {
+            case .lidar:
+                // Switch to hybrid mode if LiDAR quality is poor
+                currentScanningMode = .hybrid
+                logger.info("Switching to hybrid scanning mode due to low quality")
+                
+            case .photogrammetry:
+                // Adjust photogrammetry parameters
+                adjustPhotogrammetrySettings()
+                logger.info("Adjusting photogrammetry settings due to low quality")
+                
+            case .hybrid:
+                // Fine-tune fusion weights
+                adjustFusionWeights()
+                logger.info("Adjusting fusion weights due to low quality")
+            }
+            
+            // Notify the UI to update guidance
+            NotificationCenter.default.post(
+                name: .scanningModeChanged,
+                object: nil,
+                userInfo: ["mode": currentScanningMode]
+            )
+        }
+    }
+
+    private func adjustPhotogrammetrySettings() {
+        // Adjust capture parameters based on current conditions
+        let currentLight = getCurrentLightingConditions()
+        
+        photoSettings.update(
+            exposure: calculateOptimalExposure(for: currentLight),
+            focus: calculateOptimalFocus(),
+            iso: calculateOptimalISO(for: currentLight)
+        )
+    }
+
+    private func adjustFusionWeights() {
+        // Analyze recent quality metrics
+        let recentMetrics = qualityTracker.getRecentMetrics(count: 10)
+        let lidarQuality = recentMetrics.map { $0.lidarConfidence }.reduce(0, +) / Float(recentMetrics.count)
+        let photoQuality = recentMetrics.map { $0.photoConfidence }.reduce(0, +) / Float(recentMetrics.count)
+        
+        // Update fusion weights based on quality analysis
+        fusionProcessor.configureFusion(FusionConfiguration(
+            lidarWeight: lidarQuality / (lidarQuality + photoQuality),
+            photoWeight: photoQuality / (lidarQuality + photoQuality)
+        ))
+    }
+
+    // Quality tracking helper class
+    private class QualityTracker {
+        private var recentQualities: [(timestamp: TimeInterval, quality: Float)] = []
+        private let qualityThreshold: Float = 0.7
+        private let consistencyWindow: TimeInterval = 3.0 // 3 seconds
+        
+        var isQualityConsistentlyLow: Bool {
+            guard recentQualities.count >= 3 else { return false }
+            
+            let currentTime = CACurrentMediaTime()
+            let recentSamples = recentQualities.filter {
+                currentTime - $0.timestamp < consistencyWindow
+            }
+            
+            let averageQuality = recentSamples.map { $0.quality }.reduce(0, +) / Float(recentSamples.count)
+            return averageQuality < qualityThreshold
+        }
+        
+        func addFrameQuality(_ quality: Float) {
+            let currentTime = CACurrentMediaTime()
+            recentQualities.append((currentTime, quality))
+            
+            // Remove old samples
+            recentQualities = recentQualities.filter {
+                currentTime - $0.timestamp < consistencyWindow
+            }
+        }
+        
+        func getRecentMetrics(count: Int) -> [(lidarConfidence: Float, photoConfidence: Float)] {
+            // Implementation for retrieving recent quality metrics
+            return []  // Placeholder
         }
     }
 }

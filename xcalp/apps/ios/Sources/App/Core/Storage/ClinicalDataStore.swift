@@ -1,10 +1,11 @@
 import Foundation
 import CoreData
 import CryptoKit
+import AppKit
 
 final class ClinicalDataStore {
     static let shared = ClinicalDataStore()
-    
+
     private let errorHandler = XCErrorHandler.shared
     private let performanceMonitor = XCPerformanceMonitor.shared
     
@@ -61,7 +62,6 @@ final class ClinicalDataStore {
                 
                 // Create audit trail
                 let auditEntity = AuditEntity(context: context)
-                auditEntity.timestamp = Date()
                 auditEntity.action = "store_scan"
                 auditEntity.scanId = scanData.id
                 auditEntity.userId = getCurrentUserId()

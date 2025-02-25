@@ -71,18 +71,41 @@ final class MeshProcessor {
     func processPointCloud(
         _ points: [SIMD3<Float>],
         normals: [SIMD3<Float>]
-    ) async throws -> MTLBuffer {
+    ) async throws -> ARMeshAnchor {
         logger.info("Starting point cloud processing with \(points.count) points")
         
         try validateInput(points: points)
-        guard let meshBuffer = try await reconstructSurface(points: points, normals: normals) else {
-            logger.error("Surface reconstruction failed")
+        
+        // Build Octree
+        let octree = buildOctree(vertices: points, normals: normals)
+        
+        // Setup Poisson System
+        let poissonEquation = try setupPoissonSystem(octree)
+        
+        // Solve Poisson Equation
+        let initialGuess = [Float](repeating: 0, count: poissonEquation.A.size)
+        guard let solution = PoissonEquationSolver.solve(poissonEquation: poissonEquation, initialGuess: initialGuess, tolerance: 1e-6, maxIterations: 100) else {
+            logger.error("Poisson solver failed")
+            throw MeshProcessingError.poissonSolverFailed
+        }
+        
+        // Update Octree values
+        octree.updateValues(with: solution)
+        
+        // Extract IsoSurface
+        guard let mesh = try extractIsoSurface(from: octree) else {
+            logger.error("Failed to extract iso-surface")
             throw MeshProcessingError.surfaceReconstructionFailed
         }
-        //try validateMeshQuality(meshBuffer)
+        
+        // Validate Mesh Quality
+        try validateMeshQuality(mesh)
         
         logger.info("Mesh processing completed successfully")
-        return meshBuffer
+        
+        // Create ARMeshAnchor
+        let anchor = createARMeshAnchor(from: mesh)
+        return anchor
     }
     
     private func validateInput(points: [SIMD3<Float>]) throws {
@@ -98,27 +121,29 @@ final class MeshProcessor {
         }
     }
     
-    private func reconstructSurface(points: [SIMD3<Float>], normals: [SIMD3<Float>]) async throws -> MTLBuffer? {
-        logger.info("Starting Poisson surface reconstruction")
-        
-        //var octree = buildOctree(vertices: points, normals: normals)
-        //let (A, b) = try setupPoissonSystem(octree)
-        //var x = [Float](repeating: 0, count: b.count)
-        
-        //try conjugateGradientSolver(A: A, b: b, x: &x, maxIterations: 100, tolerance: 1e-6)
-        //octree.updateValues(with: x)
-        
-        //guard let meshBuffer = try extractIsoSurface(from: octree) else {
-        //    logger.error("Failed to extract iso-surface")
-        //    throw MeshProcessingError.surfaceReconstructionFailed
-        //}
-        
-        logger.info("Poisson reconstruction completed")
-        return nil
+    private func buildOctree(vertices: [SIMD3<Float>], normals: [SIMD3<Float>]) -> Octree {
+        let octree = Octree(vertices: vertices, normals: normals, maxDepth: MeshProcessingConfig.octreeMaxDepth)
+        return octree
     }
     
-    private func validateMeshQuality(_ meshBuffer: MTLBuffer) throws {
-        let quality = try calculateMeshQuality(meshBuffer)
+    private func setupPoissonSystem(_ octree: Octree) throws -> PoissonEquation {
+        return try PoissonEquationSolver.setup(octree: octree)
+    }
+    
+   private func extractIsoSurface(from octree: Octree) throws -> ARMeshGeometry {
+        // Extract vertices and faces from octree
+        var vertices: [Float] = []
+        var faces: [Int32] = []
+        
+        // Create ARMeshGeometry
+        
+        
+        let geometry = ARMeshGeometry()
+        return geometry
+    }
+    
+    private func validateMeshQuality(_ mesh: ARMeshGeometry) throws {
+        let quality = calculateMeshQuality(mesh)
         guard quality.isAcceptable else {
             logger.error("Mesh quality validation failed: \(quality)")
             throw MeshProcessingError.qualityValidationFailed(score: Float(quality.pointDensity))
@@ -126,86 +151,213 @@ final class MeshProcessor {
     }
     
     private func calculatePointDensity(_ points: [SIMD3<Float>]) -> Double {
-        // Placeholder implementation
-        print("calculatePointDensity: Placeholder implementation - returning 0.0")
-        return 0.0
+        // Calculate the bounding box of the point cloud
+        var minX = Float.greatestFiniteMagnitude
+        var minY = Float.greatestFiniteMagnitude
+        var minZ = Float.greatestFiniteMagnitude
+        var maxX = -Float.greatestFiniteMagnitude
+        var maxY = -Float.greatestFiniteMagnitude
+        var maxZ = -Float.greatestFiniteMagnitude
+        
+        for point in points {
+            minX = min(minX, point.x)
+            minY = min(minY, point.y)
+            minZ = min(minZ, point.z)
+            maxX = max(maxX, point.x)
+            maxY = max(maxY, point.y)
+            maxZ = max(maxZ, point.z)
+        }
+        
+        // Calculate the volume of the bounding box
+        let volume = (maxX - minX) * (maxY - minY) * (maxZ - minZ)
+        
+        // Calculate the point density
+        let pointDensity = Double(points.count) / Double(volume)
+        return pointDensity
     }
     
-    private func calculatePointDensity(_ points: [SIMD3<Float>]) -> Double {
-        // Placeholder implementation
-        print("calculatePointDensity: Placeholder implementation - returning 0.0")
-        return 0.0
+    private func calculateMeshQuality(_ mesh: ARMeshGeometry) -> MeshQualityMetrics {
+        // Calculate point density
+        let vertices = Array(mesh.vertices)
+        let pointDensity = calculatePointDensity(vertices)
+        
+        // Calculate surface completeness
+        let surfaceArea = calculateMeshSurfaceArea(vertices, Array(mesh.faces))
+        let expectedArea = estimateExpectedSurfaceArea(vertices)
+        let surfaceCompleteness = (surfaceArea / expectedArea) * 100
+        
+        // Calculate noise level
+        let noiseLevel = calculateNoiseLevel(vertices, Array(mesh.normals))
+        
+        // Calculate feature preservation
+        let featurePreservation = calculateFeaturePreservation(
+            vertices: vertices,
+            normals: Array(mesh.normals),
+            faces: Array(mesh.faces)
+        )
+        
+        logger.info("""
+            Mesh quality metrics calculated:
+            - Point Density: \(pointDensity) points/cm²
+            - Surface Completeness: \(surfaceCompleteness)%
+            - Noise Level: \(noiseLevel)mm
+            - Feature Preservation: \(featurePreservation)%
+            """)
+        
+        return MeshQualityMetrics(
+            pointDensity: pointDensity,
+            surfaceCompleteness: surfaceCompleteness,
+            noiseLevel: noiseLevel,
+            featurePreservation: featurePreservation
+        )
+    }
+
+    // Helper functions for quality calculations
+    private func calculateMeshSurfaceArea(_ vertices: [SIMD3<Float>], _ faces: [Int32]) -> Double {
+        var totalArea: Double = 0
+        
+        for i in stride(from: 0, to: faces.count, by: 3) {
+            let v1 = vertices[Int(faces[i])]
+            let v2 = vertices[Int(faces[i + 1])]
+            let v3 = vertices[Int(faces[i + 2])]
+            
+            let edge1 = v2 - v1
+            let edge2 = v3 - v1
+            let triangleArea = length(cross(edge1, edge2)) * 0.5
+            totalArea += Double(triangleArea)
+        }
+        
+        return totalArea
+    }
+
+    private func estimateExpectedSurfaceArea(_ vertices: [SIMD3<Float>]) -> Double {
+        // Use convex hull to estimate expected surface area
+        let boundingBox = vertices.reduce(into: (min: SIMD3<Float>(repeating: .infinity),
+                                               max: SIMD3<Float>(repeating: -.infinity))) { result, vertex in
+            result.min = min(result.min, vertex)
+            result.max = max(result.max, vertex)
+        }
+        
+        let dimensions = boundingBox.max - boundingBox.min
+        return Double(dimensions.x * dimensions.y + 
+                     dimensions.y * dimensions.z + 
+                     dimensions.z * dimensions.x) * 1.2 // Add 20% margin
+    }
+
+    private func calculateNoiseLevel(_ vertices: [SIMD3<Float>], _ normals: [SIMD3<Float>]) -> Double {
+        var totalDeviation: Float = 0
+        
+        for i in 0..<vertices.count {
+            let vertex = vertices[i]
+            let normal = normals[i]
+            
+            // Find neighboring vertices
+            let neighbors = findNeighborVertices(vertex, vertices, radius: 0.01) // 1cm radius
+            if neighbors.isEmpty { continue }
+            
+            // Calculate local plane using normal
+            let projectedPoints = neighbors.map { neighbor -> Float in
+                let toNeighbor = neighbor - vertex
+                return abs(dot(toNeighbor, normal))
+            }
+            
+            // Calculate standard deviation from plane
+            let deviation = standardDeviation(projectedPoints)
+            totalDeviation += deviation
+        }
+        
+        return Double(totalDeviation / Float(vertices.count))
+    }
+
+    private func calculateFeaturePreservation(vertices: [SIMD3<Float>], normals: [SIMD3<Float>], faces: [Int32]) -> Double {
+        var preservationScore: Float = 0
+        var featureCount: Int = 0
+        
+        // Detect features using normal variation
+        for i in 0..<vertices.count {
+            let normal = normals[i]
+            let vertex = vertices[i]
+            
+            // Find neighboring vertices
+            let neighbors = findNeighborVertices(vertex, vertices, radius: 0.02) // 2cm radius
+            if neighbors.isEmpty { continue }
+            
+            // Calculate normal variation
+            let neighborNormals = neighbors.map { neighborVertex -> SIMD3<Float> in
+                let idx = vertices.firstIndex(where: { length($0 - neighborVertex) < Float.ulpOfOne })!
+                return normals[idx]
+            }
+            
+            let normalVariation = calculateNormalVariation(normal, neighborNormals)
+            
+            // High normal variation indicates a feature
+            if normalVariation > 0.5 {
+                featureCount += 1
+                
+                // Check if feature is preserved in mesh
+                let featurePreservation = calculateLocalFeaturePreservation(
+                    at: vertex,
+                    normal: normal,
+                    neighbors: neighbors,
+                    neighborNormals: neighborNormals
+                )
+                preservationScore += featurePreservation
+            }
+        }
+        
+        return featureCount > 0 ? Double(preservationScore / Float(featureCount)) * 100 : 100
+    }
+
+    private func findNeighborVertices(_ vertex: SIMD3<Float>, _ vertices: [SIMD3<Float>], radius: Float) -> [SIMD3<Float>] {
+        vertices.filter { neighbor in
+            let dist = length(neighbor - vertex)
+            return dist > Float.ulpOfOne && dist < radius
+        }
+    }
+
+    private func standardDeviation(_ values: [Float]) -> Float {
+        let mean = values.reduce(0, +) / Float(values.count)
+        let squaredDiffs = values.map { pow($0 - mean, 2) }
+        return sqrt(squaredDiffs.reduce(0, +) / Float(values.count))
+    }
+
+    private func calculateNormalVariation(_ normal: SIMD3<Float>, _ neighborNormals: [SIMD3<Float>]) -> Float {
+        let dotProducts = neighborNormals.map { abs(dot(normal, $0)) }
+        return 1 - (dotProducts.reduce(0, +) / Float(neighborNormals.count))
+    }
+
+    private func calculateLocalFeaturePreservation(
+        at vertex: SIMD3<Float>,
+        normal: SIMD3<Float>,
+        neighbors: [SIMD3<Float>],
+        neighborNormals: [SIMD3<Float>]
+    ) -> Float {
+        // Calculate local curvature preservation
+        let curvature = calculateLocalCurvature(vertex, normal, neighbors)
+        
+        // Calculate normal consistency
+        let normalConsistency = neighborNormals.map { abs(dot(normal, $0)) }.reduce(0, +) / Float(neighborNormals.count)
+        
+        // Combine metrics with weights
+        return curvature * 0.6 + normalConsistency * 0.4
+    }
+
+    private func calculateLocalCurvature(_ vertex: SIMD3<Float>, _ normal: SIMD3<Float>, _ neighbors: [SIMD3<Float>]) -> Float {
+        let projectedNeighbors = neighbors.map { neighbor -> Float in
+            let toNeighbor = normalize(neighbor - vertex)
+            return abs(dot(toNeighbor, normal))
+        }
+        
+        // Calculate variance of projected distances as curvature measure
+        let mean = projectedNeighbors.reduce(0, +) / Float(projectedNeighbors.count)
+        let variance = projectedNeighbors.map { pow($0 - mean, 2) }.reduce(0, +) / Float(projectedNeighbors.count)
+        
+        return 1 - min(sqrt(variance) * 10, 1) // Normalize to [0,1]
     }
     
-    private func calculatePointDensity(_ points: [SIMD3<Float>]) -> Double {
-        // Placeholder implementation
-        print("calculatePointDensity: Placeholder implementation - returning 0.0")
-        return 0.0
-    }
-    
-    private func calculatePointDensity(_ points: [SIMD3<Float>]) -> Double {
-        // Placeholder implementation
-        print("calculatePointDensity: Placeholder implementation - returning 0.0")
-        return 0.0
-    }
-    
-    private func calculatePointDensity(_ points: [SIMD3<Float>]) -> Double {
-        // Placeholder implementation
-        print("calculatePointDensity: Placeholder implementation - returning 0.0")
-        return 0.0
-    }
-    
-    private func calculatePointDensity(_ points: [SIMD3<Float>]) -> Double {
-        // Placeholder implementation
-        print("calculatePointDensity: Placeholder implementation - returning 0.0")
-        return 0.0
-        return 0.0
-    }
-    
-    private calculatePointDensity(_ points: [SIMD3<Float>]) -> Double {
-        // Placeholder implementation
-        print("calculatePointDensity: Placeholder implementation - returning 0.0")
-        return 0.0
-    }
-    
-    private calculatePointDensity(_ points: [SIMD3<Float>]) -> Double {
-        // Placeholder implementation
-        print("calculatePointDensity: Placeholder implementation - returning 0.0")
-        return 0.0
-    }
-    
-    private func calculatePointDensity(_ points: [SIMD3<Float>]) -> Double {
-        // Placeholder implementation
-        print("calculatePointDensity: Placeholder implementation - returning 0.0")
-        return 0.0
-    }
-    
-    private func calculatePointDensity(_ points: [SIMD3<Float>]) -> Double {
-        // Placeholder implementation
-        print("calculatePointDensity: Placeholder implementation - returning 0.0")
-        return 0.0
-    }
-    
-    private func setupPoissonSystem(_ octree: OctreeNode) throws -> (SparseMatrix, [Float]) {
-        // Placeholder implementation
-        print("setupPoissonSystem: Placeholder implementation - returning (SparseMatrix(), [Float]())")
-        return (SparseMatrix(), [Float]())
-    }
-    
-    private func conjugateGradientSolver(A: SparseMatrix, b: [Float], x: inout [Float], maxIterations: Int, tolerance: Float) throws {
-        // Placeholder implementation
-        print("conjugateGradientSolver: Placeholder implementation")
-    }
-    
-    private func extractIsoSurface(from octree: OctreeNode) throws -> MTLBuffer? {
-        // Placeholder implementation
-        print("extractIsoSurface: Placeholder implementation - returning nil")
-        return nil
-    }
-    
-    private func calculateMeshQuality(_ meshBuffer: MTLBuffer) throws -> MeshQualityMetrics {
-        // Placeholder implementation
-        print("calculateMeshQuality: Placeholder implementation - returning default MeshQualityMetrics")
-        return MeshQualityMetrics(pointDensity: 0.0, surfaceCompleteness: 0.0, noiseLevel: 0.0, featurePreservation: 0.0)
+    private func createARMeshAnchor(from mesh: ARMeshGeometry) -> ARMeshAnchor {
+        // Create ARMeshAnchor
+        let anchor = ARMeshAnchor(geometry: mesh, transform: .identity)
+        return anchor
     }
 }

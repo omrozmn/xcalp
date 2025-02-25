@@ -198,44 +198,46 @@ final class DataFusionProcessor {
         return PointCloud(points: fusedPoints)
     }
     
+    // MARK: - Core Fusion Logic
+
     func fuseData(lidarData: ARMeshGeometry, photoData: PhotogrammetryData) throws -> FusedScanResult {
-        let perfID = PerformanceMonitor.shared.startMeasuring(
-            "dataFusion",
-            category: "processing"
-        )
-        
-        defer {
-            PerformanceMonitor.shared.endMeasuring(
-                "dataFusion",
-                signpostID: perfID,
-                category: "processing"
-            )
-        }
+        let perfID = PerformanceMonitor.shared.startMeasuring("dataFusion", category: "processing")
+        defer { PerformanceMonitor.shared.endMeasuring("dataFusion", signpostID: perfID, category: "processing") }
         
         // Step 1: Align photogrammetry data with LiDAR mesh
         let alignedPhotoData = try alignPhotogrammetryData(photoData, with: lidarData)
         
-        // Step 2: Fuse point clouds with weighted confidence
-        let fusedPointCloud = fuseLidarAndPhoto(
-            lidarMesh: lidarData,
-            photoPoints: alignedPhotoData.points,
-            photoConfidence: alignedPhotoData.confidence
+        // Step 2: Calculate confidence scores
+        let lidarConfidence = calculateLidarConfidence(lidarData)
+        let photoConfidence = calculatePhotogrammetryConfidence(alignedPhotoData)
+        
+        // Step 3: Determine adaptive weights based on confidence scores
+        let weights = FusionWeights.adaptive(
+            lidarConfidence: lidarConfidence,
+            photoConfidence: photoConfidence
         )
         
-        // Step 3: Optimize fused mesh
+        // Step 4: Fuse point clouds with weighted confidence
+        let fusedPointCloud = try fuseLidarAndPhoto(
+            lidarMesh: lidarData,
+            photoPoints: alignedPhotoData.points,
+            weights: weights
+        )
+        
+        // Step 5: Optimize fused mesh
         let optimizedMesh = try meshOptimizer.optimizeMesh(fusedPointCloud)
         
-        // Step 4: Validate fusion quality
+        // Step 6: Validate fusion quality
         let quality = validateFusion(optimizedMesh)
         guard quality >= qualityThreshold else {
             throw FusionError.qualityBelowThreshold(quality)
         }
         
-        // Step 5: Generate confidence map
+        // Step 7: Generate confidence map
         let confidenceMap = generateConfidenceMap(
             mesh: optimizedMesh,
-            lidarConfidence: fusionConfig.lidarWeight,
-            photoConfidence: fusionConfig.photoWeight
+            lidarConfidence: weights.lidar,
+            photoConfidence: weights.photogrammetry
         )
         
         return FusedScanResult(
@@ -245,7 +247,7 @@ final class DataFusionProcessor {
             metadata: generateFusionMetadata()
         )
     }
-    
+
     private func alignPhotogrammetryData(_ photoData: PhotogrammetryData, with lidarMesh: ARMeshGeometry) throws -> AlignedPhotoData {
         // Implement ICP (Iterative Closest Point) alignment
         var currentTransform = matrix_identity_float4x4
@@ -303,7 +305,7 @@ final class DataFusionProcessor {
     private func fuseLidarAndPhoto(
         lidarMesh: ARMeshGeometry,
         photoPoints: [SIMD3<Float>],
-        photoConfidence: Float
+        weights: FusionWeights
     ) -> ARMeshGeometry {
         var fusedVertices: [SIMD3<Float>] = []
         var fusedNormals: [SIMD3<Float>] = []
@@ -328,8 +330,8 @@ final class DataFusionProcessor {
             
             if !neighbors.isEmpty {
                 // Calculate weighted average position
-                let photoWeight = fusionConfig.photoWeight * photoConfidence
-                let lidarWeight = fusionConfig.lidarWeight
+                let photoWeight = weights.photogrammetry
+                let lidarWeight = weights.lidar
                 let totalWeight = photoWeight + lidarWeight
                 
                 let weightedPos = neighbors.reduce(lidarVertex * lidarWeight) {
@@ -452,6 +454,95 @@ final class DataFusionProcessor {
             processingTime: CACurrentMediaTime(),
             memoryUsage: ProcessInfo.processInfo.physicalMemory
         )
+    }
+    
+    private func calculateLidarConfidence(_ lidarData: ARMeshGeometry) -> Float {
+        let vertices = Array(lidarData.vertices)
+        let normals = Array(lidarData.normals)
+        
+        // Calculate point cloud density score (30%)
+        let density = calculateLocalDensity(vertices)
+        let densityScore = min(density / 1000.0, 1.0) * 0.3
+        
+        // Calculate normal consistency score (40%)
+        let normalConsistency = calculateNormalConsistency(vertices, normals)
+        let normalScore = normalConsistency * 0.4
+        
+        // Calculate geometric stability score (30%)
+        let stability = calculateGeometricStability(vertices, Array(lidarData.faces))
+        let stabilityScore = stability * 0.3
+        
+        return densityScore + normalScore + stabilityScore
+    }
+
+    private func calculatePhotogrammetryConfidence(_ photoData: AlignedPhotoData) -> Float {
+        // Calculate feature matching score (40%)
+        let featureScore = photoData.points.map { $0.matchConfidence }.reduce(0, +) / Float(photoData.points.count) * 0.4
+        
+        // Calculate reprojection error score (30%)
+        let reprojectionScore = (1.0 - calculateReprojectionError(photoData)) * 0.3
+        
+        // Calculate coverage score (30%)
+        let coverageScore = calculateCoverageScore(photoData.points) * 0.3
+        
+        return featureScore + reprojectionScore + coverageScore
+    }
+
+    private func calculateNormalConsistency(_ vertices: [SIMD3<Float>], _ normals: [SIMD3<Float>]) -> Float {
+        var consistencyScore: Float = 0
+        
+        for i in 0..<vertices.count {
+            let neighbors = findNeighborVertices(vertices[i], vertices, radius: 0.01)
+            if neighbors.isEmpty { continue }
+            
+            let neighborNormals = neighbors.compactMap { neighbor -> SIMD3<Float>? in
+                guard let idx = vertices.firstIndex(where: { length($0 - neighbor) < Float.ulpOfOne }) else { return nil }
+                return normals[idx]
+            }
+            
+            let normalVariation = calculateNormalVariation(normals[i], neighborNormals)
+            consistencyScore += 1 - normalVariation
+        }
+        
+        return consistencyScore / Float(vertices.count)
+    }
+
+    private func calculateGeometricStability(_ vertices: [SIMD3<Float>], _ faces: [Int32]) -> Float {
+        var stabilityScore: Float = 0
+        let triangleCount = faces.count / 3
+        
+        for i in stride(from: 0, to: faces.count, by: 3) {
+            let v1 = vertices[Int(faces[i])]
+            let v2 = vertices[Int(faces[i + 1])]
+            let v3 = vertices[Int(faces[i + 2])]
+            
+            // Calculate triangle quality metrics
+            let edgeLengths = [
+                length(v2 - v1),
+                length(v3 - v2),
+                length(v1 - v3)
+            ]
+            
+            // Calculate aspect ratio
+            let s = edgeLengths.reduce(0, +) * 0.5
+            let area = sqrt(s * (s - edgeLengths[0]) * (s - edgeLengths[1]) * (s - edgeLengths[2]))
+            let aspectRatio = (edgeLengths[0] * edgeLengths[1] * edgeLengths[2]) / (8 * area * area)
+            
+            stabilityScore += 1 / aspectRatio
+        }
+        
+        return stabilityScore / Float(triangleCount)
+    }
+
+    private func calculateReprojectionError(_ photoData: AlignedPhotoData) -> Float {
+        // Calculate average reprojection error across all matched features
+        let errors = photoData.points.compactMap { point -> Float? in
+            guard let projected = projectPoint(point.position) else { return nil }
+            return length(projected - point.imagePoint)
+        }
+        
+        let meanError = errors.reduce(0, +) / Float(errors.count)
+        return min(meanError / 10.0, 1.0) // Normalize to [0,1], assuming 10px is max acceptable error
     }
 }
 
