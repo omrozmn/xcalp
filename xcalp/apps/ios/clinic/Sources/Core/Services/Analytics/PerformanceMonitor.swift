@@ -1,45 +1,83 @@
 import Foundation
 import MetalKit
 import os.log
-import os.signpost
-#if canImport(QuartzCore)
-import QuartzCore
-#endif
+import Combine
+import MetricKit
 
-/// Service for monitoring app performance metrics
 @MainActor
 public final class PerformanceMonitor: ObservableObject {
     public static let shared = PerformanceMonitor()
-    private let logger = Logger(subsystem: "com.xcalp.clinic", category: "Performance")
-    private let queue = DispatchQueue(label: "com.xcalp.clinic.performance", qos: .utility)
-    private let lock = NSLock()
     
-    // Performance thresholds from blueprint
-    private let maxMemoryUsage: UInt64 = 200 * 1024 * 1024  // 200MB
-    private let minFrameRate: Double = 30.0
-    private let maxProcessingTime: TimeInterval = 5.0
-    private let thermalThreshold = ProcessInfo.ThermalState.serious
-    
-    private var metrics: [String: [TimeInterval]] = [:]
-    private var signposts: [String: OSSignpostID] = [:]
-    private var metalCommandQueue: MTLCommandQueue?
-    private var thermalStateObserver: NSObjectProtocol?
-    
-    private let osLog = OSLog(subsystem: "com.xcalp.clinic", category: "Performance")
-    private let signposter = OSSignposter(subsystem: "com.xcalp.clinic", category: "Performance")
-    
+    // MARK: - Published Properties
     @Published private(set) var memoryUsage: UInt64 = 0
     @Published private(set) var frameRate: Double = 0
     @Published private(set) var gpuUtilization: Double = 0
+    @Published private(set) var cpuUsage: Double = 0
     @Published private(set) var thermalState: ProcessInfo.ThermalState = .nominal
     @Published private(set) var isPerformanceLimited: Bool = false
     
+    // MARK: - Private Properties
+    private let logger = Logger(subsystem: "com.xcalp.clinic", category: "Performance")
+    private let queue = DispatchQueue(label: "com.xcalp.clinic.performance", qos: .utility)
+    private let signposter = OSSignposter(subsystem: "com.xcalp.clinic", category: "Performance")
+    private var metalCommandQueue: MTLCommandQueue?
+    private var updateTimer: Timer?
+    private var metrics: [String: [TimeInterval]] = [:]
+    private var thermalStateObserver: NSObjectProtocol?
+    private var metricSubscriber: AnyCancellable?
+    private var scanPhase: ScanningPhase = .initializing
+    private var performanceHistory: [PerformanceSnapshot] = []
+    
+    // MARK: - Constants
+    private let historyLimit = 100
+    private let updateInterval: TimeInterval = 1.0
+    
     private init() {
         setupMetalTracking()
+        setupMetricKit()
         setupThermalMonitoring()
         startMonitoring()
     }
     
+    // MARK: - Public Methods
+    public func startMonitoring() {
+        stopMonitoring() // Clean up any existing monitoring
+        
+        updateTimer = Timer.scheduledTimer(withTimeInterval: updateInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                await self?.updateMetrics()
+            }
+        }
+        
+        logger.info("Performance monitoring started")
+    }
+    
+    public func stopMonitoring() {
+        updateTimer?.invalidate()
+        updateTimer = nil
+        logger.info("Performance monitoring stopped")
+    }
+    
+    public func updatePhase(_ phase: ScanningPhase) {
+        scanPhase = phase
+        logger.info("Scanning phase updated to: \(String(describing: phase))")
+    }
+    
+    public func getPerformanceHistory() -> [PerformanceSnapshot] {
+        return performanceHistory
+    }
+    
+    public func reportResourceMetrics() -> ResourceMetrics {
+        ResourceMetrics(
+            cpuUsage: cpuUsage,
+            memoryUsage: memoryUsage,
+            gpuUtilization: gpuUtilization,
+            frameRate: frameRate,
+            thermalState: thermalState
+        )
+    }
+    
+    // MARK: - Private Methods
     private func setupMetalTracking() {
         guard let device = MTLCreateSystemDefaultDevice() else {
             logger.error("Failed to create Metal device")
@@ -48,245 +86,173 @@ public final class PerformanceMonitor: ObservableObject {
         metalCommandQueue = device.makeCommandQueue()
     }
     
+    private func setupMetricKit() {
+        metricSubscriber = MXMetricManager.shared.publisher
+            .sink { [weak self] metrics in
+                self?.processMetrics(metrics)
+            }
+        MXMetricManager.shared.add(self)
+    }
+    
     private func setupThermalMonitoring() {
         thermalStateObserver = NotificationCenter.default.addObserver(
             forName: ProcessInfo.thermalStateDidChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.handleThermalStateChange()
-        }
-        thermalState = ProcessInfo.processInfo.thermalState
-    }
-    
-    private func handleThermalStateChange() {
-        let newState = ProcessInfo.processInfo.thermalState
-        thermalState = newState
-        
-        if newState.rawValue >= thermalThreshold.rawValue {
-            isPerformanceLimited = true
-            logger.warning("Performance limited due to thermal state: \(newState)")
-            Task { @MainActor in
-                await reduceResourceUsage()
-            }
-        } else {
-            isPerformanceLimited = false
+            self?.thermalState = ProcessInfo.processInfo.thermalState
+            self?.checkThermalState()
         }
     }
     
-    private func reduceResourceUsage() async {
-        // Clear image caches
-        URLCache.shared.removeAllCachedResponses()
-        
-        // Release unused Metal resources
-        metalCommandQueue?.insertDebugCaptureBoundary()
-        
-        // Request resource cleanup
-        await ResourceManager.shared.cleanupUnusedResources()
-        
-        // Force garbage collection if available
-        #if DEBUG
-        autoreleasepool {
-            _ = malloc_size(malloc(1))  // Force memory pressure
-        }
-        #endif
+    private func updateMetrics() async {
+        await updateMemoryUsage()
+        await updateCPUUsage()
+        await updateGPUMetrics()
+        checkPerformanceThresholds()
+        recordSnapshot()
     }
     
-    public func startMeasuring(
-        _ name: String,
-        category: String
-    ) -> OSSignpostID {
-        lock.lock()
-        defer { lock.unlock() }
-        
-        let signpostID = signposter.makeSignpostID()
-        signposts[name] = signpostID
-        
-        signposter.emitBegin(signpostID, name)
-        logger.debug("Started measuring \(name)")
-        
-        return signpostID
-    }
-    
-    public func endMeasuring(
-        _ name: String,
-        signpostID: OSSignpostID,
-        category: String,
-        error: Error? = nil
-    ) {
-        lock.lock()
-        defer { lock.unlock() }
-        
-        signposter.emitEnd(signpostID, name)
-        
-        if let error = error {
-            logger.error("Measurement \(name) failed: \(error.localizedDescription)")
-            AnalyticsService.shared.logError(error, severity: .error, context: [
-                "measurement": name,
-                "category": category
-            ])
-        } else {
-            if let interval = getSignpostInterval(for: name, id: signpostID) {
-                queue.async {
-                    self.updateMetrics(name: name, duration: interval)
-                }
-            }
-        }
-        
-        signposts.removeValue(forKey: name)
-    }
-    
-    private func getSignpostInterval(for name: String, id: OSSignpostID) -> TimeInterval? {
-        // Get interval from signpost if available
-        0.5 // Placeholder - actual implementation would use OSSignpostIntervalState
-    }
-    
-    private func updateMetrics(name: String, duration: TimeInterval) {
-        lock.lock()
-        defer { lock.unlock() }
-        
-        var measurements = metrics[name] ?? []
-        measurements.append(duration)
-        
-        // Keep only last 100 measurements
-        if measurements.count > 100 {
-            measurements.removeFirst(measurements.count - 100)
-        }
-        
-        metrics[name] = measurements
-        
-        // Log if performance threshold exceeded
-        let average = measurements.reduce(0, +) / Double(measurements.count)
-        if average > maxProcessingTime {
-            logger.warning("\(name) average duration (\(average)s) exceeds threshold (\(maxProcessingTime)s)")
-        }
-        
-        logMetrics(name: name, duration: average)
-    }
-    
-    private func startMonitoring() {
-        // Monitor memory usage
-        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.updateMemoryUsage()
-            self?.updateFrameRate()
-            self?.updateGPUUtilization()
-        }
-        
-        // Initial update
-        updateMemoryUsage()
-    }
-    
-    private func updateMemoryUsage() {
+    private func updateMemoryUsage() async {
         var info = mach_task_basic_info()
         var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
         
         let kerr: kern_return_t = withUnsafeMutablePointer(to: &info) {
             $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
-                task_info(mach_task_self_,
-                         task_flavor_t(MACH_TASK_BASIC_INFO),
-                         $0,
-                         &count)
+                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
             }
         }
         
         if kerr == KERN_SUCCESS {
-            let oldUsage = memoryUsage
             memoryUsage = info.resident_size
-            
-            // Check for significant memory increases
-            if memoryUsage > oldUsage && (Double(memoryUsage - oldUsage) / Double(oldUsage)) > 0.2 {
-                logger.warning("Memory usage increased by >20%: \(ByteCountFormatter.string(fromByteCount: Int64(memoryUsage - oldUsage), countStyle: .memory))")
-            }
-            
-            // Check against threshold
-            if memoryUsage > maxMemoryUsage {
-                logger.warning("Memory usage exceeds limit: \(ByteCountFormatter.string(fromByteCount: Int64(memoryUsage), countStyle: .memory))")
-                Task { @MainActor in
-                    await reduceResourceUsage()
+        }
+    }
+    
+    private func updateCPUUsage() async {
+        var totalUsagePercentage: Double = 0
+        var threadList: thread_act_array_t?
+        var threadCount: mach_msg_type_number_t = 0
+        
+        let threadResult = task_threads(mach_task_self_, &threadList, &threadCount)
+        
+        if threadResult == KERN_SUCCESS, let threadList = threadList {
+            for i in 0..<Int(threadCount) {
+                var threadInfo = thread_basic_info()
+                var count = mach_msg_type_number_t(THREAD_BASIC_INFO_COUNT)
+                let infoResult = withUnsafeMutablePointer(to: &threadInfo) {
+                    $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
+                        thread_info(threadList[i], thread_flavor_t(THREAD_BASIC_INFO), $0, &count)
+                    }
+                }
+                
+                if infoResult == KERN_SUCCESS {
+                    let usage = Double(threadInfo.cpu_usage) / Double(TH_USAGE_SCALE)
+                    totalUsagePercentage += usage
                 }
             }
-        }
-    }
-    
-    private func updateFrameRate() {
-        // Use CADisplayLink for accurate frame rate
-        #if os(iOS)
-        if let displayLink = displayLink {
-            frameRate = 1.0 / displayLink.targetTimestamp
             
-            if frameRate < minFrameRate {
-                logger.warning("Frame rate below requirement: \(Int(frameRate)) FPS")
-                isPerformanceLimited = true
-            } else {
-                isPerformanceLimited = false
-            }
+            vm_deallocate(mach_task_self_, vm_address_t(UInt(bitPattern: threadList)), vm_size_t(threadCount) * vm_size_t(MemoryLayout<thread_t>.size))
         }
-        #endif
+        
+        cpuUsage = min(totalUsagePercentage, 1.0)
     }
     
-    private func updateGPUUtilization() {
+    private func updateGPUMetrics() async {
         guard let commandQueue = metalCommandQueue else { return }
         
-        // Get GPU counters using Metal Performance Shaders
-        // This is a placeholder - actual implementation would use MTLCounters
-        let utilization = 0.0
+        let commandBuffer = commandQueue.makeCommandBuffer()
+        let start = CACurrentMediaTime()
+        commandBuffer?.commit()
+        commandBuffer?.waitUntil(Date().addingTimeInterval(0.001))
+        let end = CACurrentMediaTime()
         
-        gpuUtilization = utilization
+        frameRate = 1.0 / (end - start)
+        gpuUtilization = min((end - start) / 0.016667, 1.0) // 60 FPS target
+    }
+    
+    private func checkPerformanceThresholds() {
+        let thresholds = AppConfiguration.Performance.Thresholds
+        let wasLimited = isPerformanceLimited
         
-        if utilization > 0.8 { // 80% threshold
-            logger.warning("High GPU utilization: \(Int(utilization * 100))%")
-            isPerformanceLimited = true
+        isPerformanceLimited = memoryUsage > thresholds.maxMemoryUsage ||
+                             frameRate < thresholds.minFrameRate ||
+                             gpuUtilization > thresholds.maxGPUUtilization ||
+                             cpuUsage > thresholds.maxCPUUsage ||
+                             thermalState == .serious
+        
+        if isPerformanceLimited != wasLimited {
+            NotificationCenter.default.post(
+                name: isPerformanceLimited ? .performanceLimitationBegan : .performanceLimitationEnded,
+                object: self
+            )
         }
     }
     
-    public func meetsPerformanceRequirements() -> Bool {
-        let meetsMemoryRequirement = memoryUsage < maxMemoryUsage
-        let meetsFrameRateRequirement = frameRate >= minFrameRate
-        let meetsThermalRequirement = thermalState.rawValue < thermalThreshold.rawValue
-        
-        return meetsMemoryRequirement && meetsFrameRateRequirement && meetsThermalRequirement
+    private func checkThermalState() {
+        if thermalState == .serious || thermalState == .critical {
+            NotificationCenter.default.post(name: .thermalStateWarning, object: self)
+        }
     }
     
-    private func logMetrics(name: String, duration: TimeInterval) {
-        AnalyticsService.shared.logPerformance(
-            name: name,
-            duration: duration,
-            memoryUsage: Int64(currentMemoryUsage())
+    private func recordSnapshot() {
+        let snapshot = PerformanceSnapshot(
+            memoryUsage: memoryUsage,
+            frameRate: frameRate,
+            gpuUtilization: gpuUtilization,
+            cpuUsage: cpuUsage,
+            thermalState: thermalState,
+            timestamp: Date()
         )
-    }
-    
-    public func currentMemoryUsage() -> UInt64 {
-        memoryUsage
-    }
-    
-    public func currentFrameRate() -> Double {
-        frameRate
-    }
-    
-    deinit {
-        if let observer = thermalStateObserver {
-            NotificationCenter.default.removeObserver(observer)
+        
+        performanceHistory.append(snapshot)
+        if performanceHistory.count > historyLimit {
+            performanceHistory.removeFirst()
         }
     }
     
-    #if os(iOS)
-    private var displayLink: CADisplayLink?
-    
-    private func setupDisplayLink() {
-        displayLink = CADisplayLink(target: self, selector: #selector(displayLinkFired))
-        displayLink?.add(to: .main, forMode: .common)
+    private func processMetrics(_ metrics: [MXMetric]) {
+        // Process MetricKit metrics for additional insights
+        metrics.forEach { metric in
+            if let cpuMetric = metric as? MXCPUMetric {
+                logger.debug("CPU time: \(cpuMetric.timeMetric.average)")
+            }
+            if let memoryMetric = metric as? MXMemoryMetric {
+                logger.debug("Peak memory: \(memoryMetric.peakMemoryUsage.average)")
+            }
+        }
     }
-    
-    @objc private func displayLinkFired() {
-        // Frame timing handled in updateFrameRate()
-    }
-    #endif
 }
 
-// MARK: - Array Extension
-private extension Array where Element == TimeInterval {
-    var average: TimeInterval {
-        guard !isEmpty else { return 0 }
-        return reduce(0, +) / TimeInterval(count)
+// MARK: - Supporting Types
+extension PerformanceMonitor {
+    public struct ResourceMetrics {
+        public let cpuUsage: Double
+        public let memoryUsage: UInt64
+        public let gpuUtilization: Double
+        public let frameRate: Double
+        public let thermalState: ProcessInfo.ThermalState
     }
+    
+    public struct PerformanceSnapshot {
+        public let memoryUsage: UInt64
+        public let frameRate: Double
+        public let gpuUtilization: Double
+        public let cpuUsage: Double
+        public let thermalState: ProcessInfo.ThermalState
+        public let timestamp: Date
+    }
+    
+    public enum ScanningPhase {
+        case initializing
+        case lidar
+        case photogrammetry
+        case fusion
+    }
+}
+
+// MARK: - Notifications
+extension Notification.Name {
+    public static let performanceLimitationBegan = Notification.Name("performanceLimitationBegan")
+    public static let performanceLimitationEnded = Notification.Name("performanceLimitationEnded")
+    public static let thermalStateWarning = Notification.Name("thermalStateWarning")
 }

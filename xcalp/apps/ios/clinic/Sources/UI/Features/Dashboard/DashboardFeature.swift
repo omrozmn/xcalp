@@ -1,18 +1,19 @@
 import ComposableArchitecture
-import Foundation
 import Features
+import Foundation
 
 public struct DashboardFeature: Reducer {
     public struct State: Equatable {
         public var isOnline: Bool = true
         public var isRefreshing: Bool = false
+        public var errorMessage: String?
         public var todaySchedule: [Appointment] = []
         public var recentPatients: [RecentPatient] = []
         public var quickActions: [QuickAction] = []
         public var statistics: [Statistic] = []
+        public var lastRefreshDate: Date?
         
         public init() {
-            // Default quick actions
             quickActions = [
                 .init(id: "new_scan", title: "New Scan", iconName: "camera.fill"),
                 .init(id: "new_patient", title: "New Patient", iconName: "person.badge.plus"),
@@ -30,6 +31,8 @@ public struct DashboardFeature: Reducer {
         case profileButtonTapped
         case connectionStatusChanged(Bool)
         case webSocketEvent(WebSocketService.Event)
+        case dismissError
+        case backgroundRefresh
     }
     
     @Dependency(\.continuousClock) var clock
@@ -43,7 +46,6 @@ public struct DashboardFeature: Reducer {
         Reduce { state, action in
             switch action {
             case .onAppear:
-                // Start observing network status and WebSocket events
                 return .merge(
                     .send(.refresh),
                     .run { send in
@@ -61,13 +63,26 @@ public struct DashboardFeature: Reducer {
                         for await event in await webSocketService.observeEvents() {
                             await send(.webSocketEvent(event))
                         }
+                    },
+                    // Add background refresh every 5 minutes
+                    .run { send in
+                        for await _ in clock.timer(interval: .seconds(300)) {
+                            await send(.backgroundRefresh)
+                        }
                     }
                 )
                 
-            case .refresh:
-                // Only attempt refresh if online
+            case .refresh, .backgroundRefresh:
                 guard networkMonitor.isConnected() else {
                     state.isRefreshing = false
+                    state.errorMessage = action == .refresh ? "No internet connection" : nil
+                    return .none
+                }
+                
+                // Skip background refresh if recent manual refresh
+                if case .backgroundRefresh = action,
+                   let lastRefresh = state.lastRefreshDate,
+                   Date().timeIntervalSince(lastRefresh) < 60 {
                     return .none
                 }
                 
@@ -80,31 +95,42 @@ public struct DashboardFeature: Reducer {
                 
             case let .dashboardResponse(.success((summary, stats))):
                 state.isRefreshing = false
-                state.todaySchedule = summary.appointments.map {
-                    Appointment(
-                        id: UUID(uuidString: $0.id) ?? UUID(),
-                        patientName: $0.patientName,
-                        type: $0.type,
-                        time: $0.time
-                    )
+                state.errorMessage = nil
+                state.lastRefreshDate = Date()
+                
+                // Update dashboard data with animations
+                withAnimation {
+                    state.todaySchedule = summary.appointments.map {
+                        Appointment(
+                            id: UUID(uuidString: $0.id) ?? UUID(),
+                            patientName: $0.patientName,
+                            type: $0.type,
+                            time: $0.time
+                        )
+                    }
+                    state.recentPatients = summary.recentPatients.map {
+                        RecentPatient(
+                            id: UUID(uuidString: $0.id) ?? UUID(),
+                            name: $0.name,
+                            lastVisit: DateFormatter.localizedString(from: $0.lastVisit, dateStyle: .medium, timeStyle: .none)
+                        )
+                    }
+                    state.statistics = [
+                        .init(id: UUID(), title: "Total Patients", value: "\(stats.totalPatients)"),
+                        .init(id: UUID(), title: "Monthly Scans", value: "\(stats.monthlyScans)"),
+                        .init(id: UUID(), title: "Success Rate", value: "\(Int(stats.successRate))%"),
+                        .init(id: UUID(), title: "Active Plans", value: "\(stats.activePlans)")
+                    ]
                 }
-                state.recentPatients = summary.recentPatients.map {
-                    RecentPatient(
-                        id: UUID(uuidString: $0.id) ?? UUID(),
-                        name: $0.name,
-                        lastVisit: DateFormatter.localizedString(from: $0.lastVisit, dateStyle: .medium, timeStyle: .none)
-                    )
-                }
-                state.statistics = [
-                    .init(id: UUID(), title: "Total Patients", value: "\(stats.totalPatients)"),
-                    .init(id: UUID(), title: "Monthly Scans", value: "\(stats.monthlyScans)"),
-                    .init(id: UUID(), title: "Success Rate", value: "\(Int(stats.successRate))%"),
-                    .init(id: UUID(), title: "Active Plans", value: "\(stats.activePlans)")
-                ]
                 return .none
                 
-            case .dashboardResponse(.failure):
+            case let .dashboardResponse(.failure(error)):
                 state.isRefreshing = false
+                state.errorMessage = error.localizedDescription
+                return .none
+                
+            case .dismissError:
+                state.errorMessage = nil
                 return .none
                 
             case let .quickActionSelected(action):
@@ -129,7 +155,6 @@ public struct DashboardFeature: Reducer {
                 
             case let .connectionStatusChanged(isOnline):
                 state.isOnline = isOnline
-                // Refresh data when coming back online
                 if isOnline {
                     return .send(.refresh)
                 }
@@ -138,25 +163,26 @@ public struct DashboardFeature: Reducer {
             case let .webSocketEvent(event):
                 switch event {
                 case .dashboardUpdate(let summary):
-                    state.todaySchedule = summary.appointments.map {
-                        Appointment(
-                            id: UUID(uuidString: $0.id) ?? UUID(),
-                            patientName: $0.patientName,
-                            type: $0.type,
-                            time: $0.time
-                        )
-                    }
-                    state.recentPatients = summary.recentPatients.map {
-                        RecentPatient(
-                            id: UUID(uuidString: $0.id) ?? UUID(),
-                            name: $0.name,
-                            lastVisit: DateFormatter.localizedString(from: $0.lastVisit, dateStyle: .medium, timeStyle: .none)
-                        )
+                    withAnimation {
+                        state.todaySchedule = summary.appointments.map {
+                            Appointment(
+                                id: UUID(uuidString: $0.id) ?? UUID(),
+                                patientName: $0.patientName,
+                                type: $0.type,
+                                time: $0.time
+                            )
+                        }
+                        state.recentPatients = summary.recentPatients.map {
+                            RecentPatient(
+                                id: UUID(uuidString: $0.id) ?? UUID(),
+                                name: $0.name,
+                                lastVisit: DateFormatter.localizedString(from: $0.lastVisit, dateStyle: .medium, timeStyle: .none)
+                            )
+                        }
                     }
                     return .none
                     
                 case .notification:
-                    // Handle notifications in a separate feature
                     return .none
                 }
             }

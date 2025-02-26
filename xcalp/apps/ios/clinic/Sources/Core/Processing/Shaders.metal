@@ -7,6 +7,13 @@ struct Point {
     float confidence;
 };
 
+struct ProcessingParameters {
+    float spatialSigma;
+    float rangeSigma;
+    float confidenceThreshold;
+    float featureWeight;
+};
+
 kernel void processPointsKernel(device const Point* input [[ buffer(0) ]],
                               device Point* output [[ buffer(1) ]],
                               uint id [[ thread_position_in_grid ]]) {
@@ -88,55 +95,51 @@ kernel void calculatePointDensityKernel(device const Point* points [[ buffer(0) 
     density[id] = float(neighborCount) / volume;
 }
 
-// Add quality assessment kernels
+// Quality metrics computation
 kernel void calculateQualityMetricsKernel(
     device const Point* points [[buffer(0)]],
     device float* qualityScores [[buffer(1)]],
-    device const float* parameters [[buffer(2)]],
+    device const ProcessingParameters& params [[buffer(2)]],
     uint id [[thread_position_in_grid]]
 ) {
-    const float searchRadius = parameters[0];
     Point centerPoint = points[id];
-    
-    // Initialize quality metrics
     float localDensity = 0;
     float normalConsistency = 0;
     float depthContinuity = 0;
-    int neighborCount = 0;
+    int validNeighbors = 0;
     
     // Calculate local quality metrics
     for (uint i = 0; i < id; i++) {
-        float3 diff = points[i].position - centerPoint.position;
-        float dist = length(diff);
+        Point neighbor = points[i];
+        float dist = length(neighbor.position - centerPoint.position);
         
-        if (dist < searchRadius) {
-            // Contribute to local density
-            localDensity += 1.0;
+        if (dist < params.spatialSigma * 3) {
+            // Local density
+            localDensity += 1.0 / (dist + 1e-5);
             
             // Normal consistency
-            float normalAlignment = dot(normalize(points[i].normal), normalize(centerPoint.normal));
-            normalConsistency += normalAlignment;
+            float normalAlignment = dot(normalize(neighbor.normal), normalize(centerPoint.normal));
+            normalConsistency += abs(normalAlignment);
             
             // Depth continuity
-            float depthDiff = abs(points[i].position.z - centerPoint.position.z);
-            depthContinuity += 1.0 / (1.0 + depthDiff);
+            float depthDiff = abs(length(neighbor.position) - length(centerPoint.position));
+            depthContinuity += 1.0 - min(depthDiff / params.rangeSigma, 1.0);
             
-            neighborCount++;
+            validNeighbors++;
         }
     }
     
-    // Normalize metrics
-    if (neighborCount > 0) {
-        localDensity /= (M_PI_F * searchRadius * searchRadius); // points per unit area
-        normalConsistency /= float(neighborCount);
-        depthContinuity /= float(neighborCount);
+    if (validNeighbors > 0) {
+        // Normalize and combine metrics
+        localDensity /= float(validNeighbors);
+        normalConsistency /= float(validNeighbors);
+        depthContinuity /= float(validNeighbors);
         
-        // Combine metrics with weights
-        float qualityScore = localDensity * 0.4 + 
-                           normalConsistency * 0.3 + 
-                           depthContinuity * 0.3;
-                           
-        qualityScores[id] = qualityScore;
+        float qualityScore = localDensity * 0.4 +
+                            normalConsistency * 0.3 +
+                            depthContinuity * 0.3;
+                            
+        qualityScores[id] = qualityScore * centerPoint.confidence;
     } else {
         qualityScores[id] = 0.0;
     }
@@ -146,53 +149,91 @@ kernel void calculateQualityMetricsKernel(
 kernel void adaptiveBilateralFilterKernel(
     device const Point* input [[buffer(0)]],
     device Point* output [[buffer(1)]],
-    device const float* parameters [[buffer(2)]],
+    device const ProcessingParameters& params [[buffer(2)]],
     uint id [[thread_position_in_grid]]
 ) {
-    const float spatialSigma = parameters[0];
-    const float rangeSigma = parameters[1];
-    const float confidenceThreshold = parameters[2];
     Point centerPoint = input[id];
-    
     float3 filteredPosition = 0;
     float3 filteredNormal = 0;
     float weightSum = 0;
     
-    // Adapt filter strength based on point confidence
-    float adaptiveSpatialSigma = spatialSigma;
-    float adaptiveRangeSigma = rangeSigma;
+    // Adapt filter strength based on local features
+    float adaptiveSpatialSigma = params.spatialSigma;
+    float adaptiveRangeSigma = params.rangeSigma;
     
-    if (centerPoint.confidence < confidenceThreshold) {
-        // Increase filter strength for low confidence points
+    if (centerPoint.confidence < params.confidenceThreshold) {
+        // Increase filtering for low confidence points
         adaptiveSpatialSigma *= 1.5;
         adaptiveRangeSigma *= 1.5;
     }
     
+    // Feature-preserving filtering
     for (uint i = 0; i < id; i++) {
         Point neighbor = input[i];
         float3 diff = neighbor.position - centerPoint.position;
         float spatialDist = length(diff);
         
-        if (spatialDist > adaptiveSpatialSigma * 3) continue; // 3-sigma cutoff
+        if (spatialDist > adaptiveSpatialSigma * 3) continue;
         
-        float rangeDist = abs(neighbor.confidence - centerPoint.confidence);
+        float featureDist = abs(dot(normalize(neighbor.normal), normalize(centerPoint.normal)));
+        float confidenceDist = abs(neighbor.confidence - centerPoint.confidence);
         
         // Calculate bilateral weights
         float spatialWeight = exp(-spatialDist * spatialDist / (2 * adaptiveSpatialSigma * adaptiveSpatialSigma));
-        float rangeWeight = exp(-rangeDist * rangeDist / (2 * adaptiveRangeSigma * adaptiveRangeSigma));
-        float weight = spatialWeight * rangeWeight;
+        float rangeWeight = exp(-confidenceDist * confidenceDist / (2 * adaptiveRangeSigma * adaptiveRangeSigma));
+        float featureWeight = pow(featureDist, params.featureWeight);
+        
+        float weight = spatialWeight * rangeWeight * featureWeight;
         
         filteredPosition += neighbor.position * weight;
         filteredNormal += neighbor.normal * weight;
         weightSum += weight;
     }
     
+    // Normalize filtered results
     if (weightSum > 0) {
         output[id].position = filteredPosition / weightSum;
         output[id].normal = normalize(filteredNormal / weightSum);
-        // Preserve original confidence
         output[id].confidence = centerPoint.confidence;
     } else {
         output[id] = centerPoint;
+    }
+}
+
+// Feature detection kernel
+kernel void detectFeaturesKernel(
+    device const Point* points [[buffer(0)]],
+    device float* featureScores [[buffer(1)]],
+    device const ProcessingParameters& params [[buffer(2)]],
+    uint id [[thread_position_in_grid]]
+) {
+    Point centerPoint = points[id];
+    float featureScore = 0;
+    int validNeighbors = 0;
+    
+    // Calculate local geometric features
+    for (uint i = 0; i < id; i++) {
+        Point neighbor = points[i];
+        float3 diff = neighbor.position - centerPoint.position;
+        float dist = length(diff);
+        
+        if (dist < params.spatialSigma * 3) {
+            // Calculate local surface variation
+            float3 normalDiff = neighbor.normal - centerPoint.normal;
+            float normalVariation = length(normalDiff) / (dist + 1e-5);
+            
+            // Calculate local curvature
+            float3 projectedDiff = diff - dot(diff, centerPoint.normal) * centerPoint.normal;
+            float curvature = length(projectedDiff) / (dist * dist + 1e-5);
+            
+            featureScore += normalVariation * 0.6 + curvature * 0.4;
+            validNeighbors++;
+        }
+    }
+    
+    if (validNeighbors > 0) {
+        featureScores[id] = (featureScore / float(validNeighbors)) * centerPoint.confidence;
+    } else {
+        featureScores[id] = 0.0;
     }
 }

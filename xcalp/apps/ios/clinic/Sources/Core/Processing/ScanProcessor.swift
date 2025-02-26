@@ -354,6 +354,48 @@ extension ScanProcessor {
         let dy = Float(p1.y - p2.y)
         return sqrt(dx * dx + dy * dy)
     }
+    
+    private func validateConsistency(_ pointCloud: PointCloud, depthMap: CVPixelBuffer?) -> Float {
+        var consistencyScore: Float = 0.0
+        let points = pointCloud.points
+        
+        autoreleasepool {
+            // Calculate local neighborhood consistency
+            let octree = Octree(maxPoints: 8, maxDepth: 6)
+            points.forEach { octree.insert($0) }
+            
+            let consistencyScores = points.map { point -> Float in
+                let neighbors = octree.findNeighbors(within: 0.05, of: point) // 5cm radius
+                return calculateLocalConsistency(point, neighbors, depthMap)
+            }
+            
+            consistencyScore = consistencyScores.reduce(0, +) / Float(consistencyScores.count)
+        }
+        
+        return consistencyScore
+    }
+
+    private func calculateLocalConsistency(_ point: SIMD3<Float>, _ neighbors: [SIMD3<Float>], _ depthMap: CVPixelBuffer?) -> Float {
+        guard !neighbors.isEmpty else { return 0 }
+        
+        // Calculate local plane normal
+        let centroid = neighbors.reduce(SIMD3<Float>.zero, +) / Float(neighbors.count)
+        let covariance = calculateCovarianceMatrix(points: neighbors, centroid: centroid)
+        let normal = calculatePrincipalDirection(covariance)
+        
+        // Check depth consistency if depth map available
+        var depthConsistency: Float = 1.0
+        if let depthMap = depthMap {
+            depthConsistency = validateDepthConsistency(point, normal, depthMap)
+        }
+        
+        // Calculate spatial consistency
+        let spatialConsistency = neighbors.map { neighbor in
+            1.0 - abs(dot(normalize(neighbor - point), normal))
+        }.reduce(0, +) / Float(neighbors.count)
+        
+        return (spatialConsistency + depthConsistency) / 2.0
+    }
 }
 
 // Supporting types

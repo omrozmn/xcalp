@@ -260,6 +260,19 @@ public final class NetworkManager {
         let backoffDelay = retryDelay * pow(progressiveRetryMultiplier, Double(retryCount))
         try await Task.sleep(nanoseconds: UInt64(backoffDelay * 1_000_000_000))
     }
+    
+    public func request<T: Decodable>(_ endpoint: ClinicEndpoint, timeoutInterval: TimeInterval? = nil) async throws -> T {
+        // Implementation
+        fatalError("Not implemented")
+    }
+}
+
+public enum ClinicEndpoint {
+    case getDashboardSummary
+    case getDashboardStats
+    case getPatientProfile(patientId: String)
+    case updatePatientProfile(patientId: String, profileData: [String: Any])
+    case saveTreatmentPlan(patientId: String, planData: [String: Any])
 }
 
 public enum HTTPMethod: String {

@@ -71,6 +71,10 @@ enum MeshProcessingError: LocalizedError {
     case octreeConstructionFailed(String)
     case insufficientFeatures(found: Int, required: Int)
     case processingTimeout(TimeInterval)
+    case metalInitializationFailed
+    case commandEncodingFailed
+    case bufferAllocationFailed
+    case qualityCheckFailed(MeshQuality)
     
     var errorDescription: String? {
         switch self {
@@ -90,6 +94,14 @@ enum MeshProcessingError: LocalizedError {
             return "Insufficient features: found \(found), required \(required)"
         case .processingTimeout(let duration):
             return "Processing timeout after \(String(format: "%.1f", duration))s"
+        case .metalInitializationFailed:
+            return "Metal initialization failed"
+        case .commandEncodingFailed:
+            return "Command encoding failed"
+        case .bufferAllocationFailed:
+            return "Buffer allocation failed"
+        case .qualityCheckFailed(let quality):
+            return "Quality check failed: \(quality)"
         }
     }
 }
@@ -798,4 +810,198 @@ extension MeshProcessor {
         // Fallback to CPU implementation
         return try await applyCPUDecimation(mesh, targetResolution: targetResolution)
     }
+}
+
+import Metal
+import MetalKit
+import ARKit
+import simd
+import os.log
+
+final class MeshProcessor {
+    private let device: MTLDevice
+    private let commandQueue: MTLCommandQueue
+    private let pipelineState: MTLComputePipelineState
+    private let performanceMonitor = PerformanceMonitor.shared
+    private let logger = Logger(subsystem: "com.xcalp.clinic", category: "MeshProcessing")
+    
+    struct ProcessingOptions {
+        let targetTriangleCount: Int
+        let smoothingIterations: Int
+        let optimizationQuality: OptimizationQuality
+        let preserveFeatures: Bool
+        
+        enum OptimizationQuality {
+            case low      // Fast, less accurate
+            case medium   // Balanced
+            case high    // Slow, most accurate
+        }
+        
+        static let `default` = ProcessingOptions(
+            targetTriangleCount: 50000,
+            smoothingIterations: 3,
+            optimizationQuality: .medium,
+            preserveFeatures: true
+        )
+    }
+    
+    init() throws {
+        guard let device = MTLCreateSystemDefaultDevice(),
+              let commandQueue = device.makeCommandQueue(),
+              let library = device.makeDefaultLibrary(),
+              let function = library.makeFunction(name: "optimizeMeshKernel") else {
+            throw MeshProcessingError.metalInitializationFailed
+        }
+        
+        self.device = device
+        self.commandQueue = commandQueue
+        self.pipelineState = try device.makeComputePipelineState(function: function)
+    }
+    
+    func processMesh(_ mesh: ARMeshAnchor.Geometry, options: ProcessingOptions = .default) async throws -> MTKMesh {
+        let perfID = performanceMonitor.startMeasuring("meshProcessing")
+        defer { performanceMonitor.endMeasuring("meshProcessing", signpostID: perfID) }
+        
+        return try await autoreleasepool {
+            // Convert AR mesh to Metal format
+            let meshDescriptor = createMeshDescriptor(from: mesh)
+            var metalMesh = try MTKMesh(mesh: meshDescriptor, device: device)
+            
+            // Process in stages with quality validation
+            metalMesh = try optimizeMesh(metalMesh, options: options)
+            try validateMeshQuality(metalMesh)
+            
+            // Apply post-processing if needed
+            if options.preserveFeatures {
+                metalMesh = try preserveFeatures(metalMesh)
+            }
+            
+            return metalMesh
+        }
+    }
+    
+    private func optimizeMesh(_ mesh: MTKMesh, options: ProcessingOptions) throws -> MTKMesh {
+        // Calculate optimal batch size based on available memory
+        let metrics = performanceMonitor.getCurrentMetrics()
+        let batchSize = calculateOptimalBatchSize(
+            vertexCount: mesh.vertexCount,
+            availableMemory: metrics.memoryUsage
+        )
+        
+        // Process mesh in batches
+        var optimizedMesh = mesh
+        for batchIndex in stride(from: 0, to: mesh.vertexCount, by: batchSize) {
+            let endIndex = min(batchIndex + batchSize, mesh.vertexCount)
+            optimizedMesh = try processVertexBatch(
+                optimizedMesh,
+                startIndex: batchIndex,
+                endIndex: endIndex,
+                options: options
+            )
+        }
+        
+        return optimizedMesh
+    }
+    
+    private func processVertexBatch(
+        _ mesh: MTKMesh,
+        startIndex: Int,
+        endIndex: Int,
+        options: ProcessingOptions
+    ) throws -> MTKMesh {
+        guard let commandBuffer = commandQueue.makeCommandBuffer(),
+              let computeEncoder = commandBuffer.makeComputeCommandEncoder() else {
+            throw MeshProcessingError.commandEncodingFailed
+        }
+        
+        // Set up compute pipeline
+        computeEncoder.setComputePipelineState(pipelineState)
+        
+        // Create vertex buffer for the batch
+        let vertexData = getBatchVertexData(mesh, start: startIndex, end: endIndex)
+        let vertexBuffer = device.makeBuffer(
+            bytes: vertexData,
+            length: vertexData.count * MemoryLayout<simd_float3>.stride,
+            options: .storageModeShared
+        )
+        
+        guard let vertexBuffer = vertexBuffer else {
+            throw MeshProcessingError.bufferAllocationFailed
+        }
+        
+        // Set compute parameters
+        computeEncoder.setBuffer(vertexBuffer, offset: 0, index: 0)
+        
+        // Calculate optimal threadgroup size
+        let threadsPerThreadgroup = MTLSizeMake(64, 1, 1)
+        let threadgroupsPerGrid = MTLSizeMake(
+            (endIndex - startIndex + 63) / 64,
+            1,
+            1
+        )
+        
+        // Dispatch compute command
+        computeEncoder.dispatchThreadgroups(threadgroupsPerGrid, threadsPerThreadgroup: threadsPerThreadgroup)
+        computeEncoder.endEncoding()
+        
+        commandBuffer.commit()
+        commandBuffer.waitUntilCompleted()
+        
+        // Update mesh with optimized vertices
+        return try updateMeshVertices(mesh, vertexBuffer: vertexBuffer, startIndex: startIndex)
+    }
+    
+    private func preserveFeatures(_ mesh: MTKMesh) throws -> MTKMesh {
+        // Identify and preserve important geometric features
+        let featureAnalyzer = MeshFeatureAnalyzer(device: device)
+        let features = try featureAnalyzer.detectFeatures(mesh)
+        
+        return try featureAnalyzer.preserveFeatures(mesh, features: features)
+    }
+    
+    private func validateMeshQuality(_ mesh: MTKMesh) throws {
+        let quality = try calculateMeshQuality(mesh)
+        
+        guard quality.aspectRatio <= 5.0,
+              quality.minAngle >= 30.0,
+              quality.maxAngle <= 120.0 else {
+            throw MeshProcessingError.qualityCheckFailed(quality)
+        }
+    }
+    
+    private func calculateMeshQuality(_ mesh: MTKMesh) throws -> MeshQuality {
+        var aspectRatio: Float = 0
+        var minAngle: Float = 180
+        var maxAngle: Float = 0
+        
+        // Calculate mesh quality metrics
+        // ... implementation details ...
+        
+        return MeshQuality(
+            aspectRatio: aspectRatio,
+            minAngle: minAngle,
+            maxAngle: maxAngle
+        )
+    }
+    
+    private func calculateOptimalBatchSize(vertexCount: Int, availableMemory: UInt64) -> Int {
+        let memoryPerVertex = 32 // bytes per vertex (position + normal)
+        let maxVertices = Int(availableMemory / 4) / memoryPerVertex
+        return min(vertexCount, maxVertices)
+    }
+}
+
+// MARK: - Supporting Types
+
+struct MeshQuality {
+    let aspectRatio: Float
+    let minAngle: Float
+    let maxAngle: Float
+}
+
+enum MeshProcessingError: Error {
+    case metalInitializationFailed
+    case commandEncodingFailed
+    case bufferAllocationFailed
+    case qualityCheckFailed(MeshQuality)
 }

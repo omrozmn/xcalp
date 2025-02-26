@@ -1,11 +1,16 @@
 import Foundation
+import OSLog
 
 /// Central error handling system for standardized error management
 public final class ErrorHandler {
     public static let shared = ErrorHandler()
     
     private let analytics = AnalyticsService.shared
-    private let logger = HIPAALogger.shared
+    private let logger = Logger(subsystem: "com.xcalp.clinic", category: "ErrorHandler")
+    
+    private var errorObservers: [(XcalpError) -> Void] = []
+    private var recentErrors: [XcalpError] = []
+    private let maxStoredErrors = 50
     
     private init() {}
     
@@ -80,6 +85,24 @@ public final class ErrorHandler {
         }
         
         throw handle(lastError ?? AppError.unknown(nil))
+    }
+    
+    public func handleError(_ error: XcalpError) {
+        logError(error)
+        storeError(error)
+        notifyObservers(error)
+        
+        if error.severity == .critical {
+            handleCriticalError(error)
+        }
+    }
+    
+    public func observe(_ handler: @escaping (XcalpError) -> Void) {
+        errorObservers.append(handler)
+    }
+    
+    public func getRecentErrors() -> [XcalpError] {
+        return recentErrors
     }
     
     // MARK: - Private Methods
@@ -161,6 +184,47 @@ public final class ErrorHandler {
                 details: context.description
             )
         }
+    }
+    
+    private func logError(_ error: XcalpError) {
+        switch error.severity {
+        case .debug:
+            logger.debug("\(error.localizedDescription)")
+        case .info:
+            logger.info("\(error.localizedDescription)")
+        case .warning:
+            logger.warning("\(error.localizedDescription)")
+        case .error:
+            logger.error("\(error.localizedDescription)")
+        case .critical:
+            logger.critical("\(error.localizedDescription)")
+        }
+    }
+    
+    private func storeError(_ error: XcalpError) {
+        recentErrors.append(error)
+        if recentErrors.count > maxStoredErrors {
+            recentErrors.removeFirst()
+        }
+    }
+    
+    private func notifyObservers(_ error: XcalpError) {
+        errorObservers.forEach { $0(error) }
+    }
+    
+    private func handleCriticalError(_ error: XcalpError) {
+        // Save current state
+        StateManager.shared.saveCurrentState()
+        
+        // Post notification for UI update
+        NotificationCenter.default.post(
+            name: .criticalErrorOccurred,
+            object: nil,
+            userInfo: ["error": error]
+        )
+        
+        // Report to analytics
+        AnalyticsService.shared.trackError(error)
     }
 }
 
@@ -316,4 +380,60 @@ public enum AppError: LocalizedError {
             }
         }
     }
+}
+
+public struct XcalpError: LocalizedError {
+    public let id: UUID
+    public let code: Int
+    public let severity: Severity
+    public let category: Category
+    public let timestamp: Date
+    public let underlyingError: Error?
+    public let context: [String: Any]
+    
+    public var errorDescription: String? {
+        return context["description"] as? String
+    }
+    
+    public enum Severity {
+        case debug
+        case info
+        case warning
+        case error
+        case critical
+    }
+    
+    public enum Category {
+        case network
+        case scanning
+        case processing
+        case storage
+        case security
+        case validation
+        case ui
+        case unknown
+    }
+    
+    public init(
+        code: Int,
+        severity: Severity,
+        category: Category,
+        description: String,
+        underlyingError: Error? = nil,
+        context: [String: Any] = [:]
+    ) {
+        self.id = UUID()
+        self.code = code
+        self.severity = severity
+        self.category = category
+        self.timestamp = Date()
+        self.underlyingError = underlyingError
+        var updatedContext = context
+        updatedContext["description"] = description
+        self.context = updatedContext
+    }
+}
+
+extension Notification.Name {
+    static let criticalErrorOccurred = Notification.Name("criticalErrorOccurred")
 }

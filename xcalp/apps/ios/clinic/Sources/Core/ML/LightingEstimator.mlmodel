@@ -1,0 +1,25 @@
+version: 1.0
+description: Lighting condition estimator for 3D scanning
+input: image [RGB 640x480]
+output: dict
+  intensity: Double # Overall light intensity
+  uniformity: Double # Light distribution uniformity
+  colorTemperature: Double # Estimated color temperature in Kelvin
+  confidence: Double # Confidence score of the estimation
+model:
+  cnn:
+    architecture: efficientnet_b0
+    weights: transfer_learning
+    optimizer: adam
+    learning_rate: 0.001
+    batch_size: 32
+    epochs: 100
+parameters:
+  minIntensity: 0.3
+  maxIntensity: 1.0
+  minUniformity: 0.5
+  minConfidence: 0.7
+metadata:
+  author: XCalp Team
+  version: 1.0.0
+  license: Proprietary

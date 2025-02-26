@@ -3,82 +3,31 @@ import QuartzCore
 import Metal
 import MetalPerformanceShaders
 import os.signpost
+import MetalKit
+import CoreML
 
-final class PerformanceMonitor {
-    static let sharedInstance: PerformanceMonitor = {
-        do {
-            let monitor = try PerformanceMonitor()
-            return monitor
-        } catch {
-            fatalError("Failed to initialize PerformanceMonitor: \(error)")
-        }
-    }()
-    private let log = OSLog(subsystem: "com.xcalp.clinic", category: "performance")
-    private var measurements: [String: Double] = [:]
-    private var signposts: [String: OSSignpostID] = [:]
-
-    private var metrics: PerformanceMetrics = PerformanceMetrics()
-    private let device: MTLDevice
-    private let commandQueue: MTLCommandQueue
+public final class PerformanceMonitor {
+    public static let shared = PerformanceMonitor()
+    
+    private let resourceMonitor = ResourceMonitor()
+    private let gpuWorkload = GPUWorkloadMonitor()
     private var performanceThresholds = PerformanceThresholds()
-    private var lastOptimization: Date = Date()
-    private let optimizationInterval: TimeInterval = 1.0
+    private var metrics = PerformanceMetrics()
+    private var lastOptimization = Date()
+    private let optimizationInterval: TimeInterval = 5.0
     
-    private var resourceMonitor: ResourceUsageMonitor
-    private var gpuWorkload: GPUWorkloadMonitor
+    private var observers: [(PerformanceMetrics) -> Void] = []
     
-    private init() throws {
-        guard let device = MTLCreateSystemDefaultDevice(),
-              let commandQueue = device.makeCommandQueue() else {
-            throw PerformanceError.initializationFailed
-        }
-        
-        self.device = device
-        self.commandQueue = commandQueue
-        self.resourceMonitor = ResourceUsageMonitor()
-        self.gpuWorkload = GPUWorkloadMonitor(device: device)
+    public func startMonitoring() {
+        setupMonitoring()
+        startPeriodicCheck()
     }
     
-    @discardableResult
-    func startMeasuring(_ name: String, category: String = "general") -> OSSignpostID {
-        let signpostID = OSSignpostID(log: log)
-        os_signpost(.begin, log: log, name: #file, signpostID: signpostID, "%{public}s", category)
-        signposts[name] = signpostID
-        return signpostID
-    }
-
-    func endMeasuring(_ name: String, signpostID: OSSignpostID, category: String = "general") {
-        os_signpost(.end, log: log, name: #file, signpostID: signpostID, "%{public}s", category)
-        measurements[name] = measurementDuration(signpostID: signpostID)
+    public func observe(_ handler: @escaping (PerformanceMetrics) -> Void) {
+        observers.append(handler)
     }
     
-    func measurementDuration(signpostID: OSSignpostID) -> Double {
-        // Implementation would use os_signpost_interval_ns to get actual duration
-        // This is a placeholder that returns a mock value for now
-        return 0.0
-    }
-    
-    func getMeasurement(_ name: String) -> Double {
-        return measurements[name] ?? 0.0
-    }
-    
-    func reset() {
-        measurements.removeAll()
-        signposts.removeAll()
-    }
-    
-    func beginFrame() {
-        metrics.frameStartTime = CACurrentMediaTime()
-    }
-    
-    func endFrame() {
-        let frameDuration = CACurrentMediaTime() - metrics.frameStartTime
-        metrics.updateFrameTime(frameDuration)
-        
-        checkPerformance()
-    }
-    
-    func monitorScanningPhase(_ phase: ScanningPhase) {
+    public func updatePhase(_ phase: ScanningPhase) {
         metrics.currentPhase = phase
         
         // Adjust monitoring thresholds based on scanning phase
@@ -89,18 +38,38 @@ final class PerformanceMonitor {
             performanceThresholds.adjustForPhotogrammetry()
         case .fusion:
             performanceThresholds.adjustForFusion()
-        case .initializing: break
-
-}
+        case .initializing:
+            performanceThresholds.setDefault()
+        }
     }
     
-    func reportResourceMetrics() -> ResourceMetrics {
+    public func reportResourceMetrics() -> ResourceMetrics {
         ResourceMetrics(
-            cpuUsage: resourceMonitor.getCPUUsage(),
-            memoryUsage: resourceMonitor.getMemoryUsage(),
-            gpuUsage: gpuWorkload.getCurrentWorkload(),
-            thermalState: getCurrentThermalState()
+            cpuUsage: getCPUUsage(),
+            memoryUsage: getMemoryUsage(),
+            gpuUtilization: getGPUUtilization(),
+            frameRate: getFrameRate()
         )
+    }
+    
+    private func getCPUUsage() -> Double { 0.0 }
+    private func getMemoryUsage() -> UInt64 { 0 }
+    private func getGPUUtilization() -> Double { 0.0 }
+    private func getFrameRate() -> Double { 0.0 }
+    
+    private func setupMonitoring() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleThermalStateChange),
+            name: ProcessInfo.thermalStateDidChangeNotification,
+            object: nil
+        )
+    }
+    
+    private func startPeriodicCheck() {
+        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.checkPerformance()
+        }
     }
     
     private func checkPerformance() {
@@ -114,57 +83,99 @@ final class PerformanceMonitor {
             optimizePerformance(based: currentMetrics)
             lastOptimization = Date()
         }
+        
+        notifyObservers()
     }
     
     private func shouldOptimize(metrics: ResourceMetrics) -> Bool {
-        // Check if any metrics exceed thresholds
-        metrics.cpuUsage > performanceThresholds.maxCPUUsage ||
+        return metrics.cpuUsage > performanceThresholds.maxCPUUsage ||
                metrics.memoryUsage > performanceThresholds.maxMemoryUsage ||
                metrics.gpuUsage > performanceThresholds.maxGPUUsage ||
-               metrics.thermalState == .serious
+               metrics.thermalState == .serious ||
+               metrics.thermalState == .critical
     }
     
     private func optimizePerformance(based metrics: ResourceMetrics) {
-        var optimizations: [PerformanceOptimization] = []
+        if metrics.thermalState == .critical {
+            handleCriticalThermalState()
+        }
         
-        // CPU optimizations
         if metrics.cpuUsage > performanceThresholds.maxCPUUsage {
-            optimizations.append(.reduceScanningResolution)
-            optimizations.append(.increaseFrameInterval)
+            reduceCPULoad()
         }
         
-        // Memory optimizations
         if metrics.memoryUsage > performanceThresholds.maxMemoryUsage {
-            optimizations.append(.clearPointBuffers)
-            optimizations.append(.compressOlderFrames)
+            reduceMemoryUsage()
         }
         
-        // GPU optimizations
         if metrics.gpuUsage > performanceThresholds.maxGPUUsage {
-            optimizations.append(.reduceVisualizationQuality)
-            optimizations.append(.disableRealTimeProcessing)
+            reduceGPULoad()
         }
-        
-        // Thermal state handling
-        if metrics.thermalState == .serious {
-            optimizations.append(.enterLowPowerMode)
-        }
-        
-        // Apply optimizations
-        applyOptimizations(optimizations)
     }
     
-    private func applyOptimizations(_ optimizations: [PerformanceOptimization]) {
+    private func handleCriticalThermalState() {
         NotificationCenter.default.post(
-            name: Notification.Name("PerformanceOptimizationNeeded"),
+            name: .performanceCriticalState,
             object: nil,
-            userInfo: ["optimizations": optimizations]
+            userInfo: ["reason": "Device temperature critical"]
         )
     }
     
-    private func getCurrentThermalState() -> ProcessInfo.ThermalState {
-        ProcessInfo.processInfo.thermalState
+    private func reduceCPULoad() {
+        // Adjust processing quality
+        metrics.processingQuality = .medium
+        
+        // Reduce update frequency
+        metrics.updateFrequency = .reduced
+        
+        NotificationCenter.default.post(
+            name: .performanceOptimization,
+            object: nil,
+            userInfo: ["optimization": "CPU load reduced"]
+        )
     }
+    
+    private func reduceMemoryUsage() {
+        // Clear caches
+        URLCache.shared.removeAllCachedResponses()
+        
+        // Reduce preview quality
+        metrics.previewQuality = .low
+        
+        NotificationCenter.default.post(
+            name: .performanceOptimization,
+            object: nil,
+            userInfo: ["optimization": "Memory usage reduced"]
+        )
+    }
+    
+    private func reduceGPULoad() {
+        // Lower render quality
+        metrics.renderQuality = .medium
+        
+        NotificationCenter.default.post(
+            name: .performanceOptimization,
+            object: nil,
+            userInfo: ["optimization": "GPU load reduced"]
+        )
+    }
+    
+    private func notifyObservers() {
+        observers.forEach { $0(metrics) }
+    }
+    
+    @objc private func handleThermalStateChange(_ notification: Notification) {
+        checkPerformance()
+    }
+    
+    private func getCurrentThermalState() -> ProcessInfo.ThermalState {
+        return ProcessInfo.processInfo.thermalState
+    }
+}
+
+extension Notification.Name {
+    static let performanceCriticalState = Notification.Name("performanceCriticalState")
+    static let performanceOptimization = Notification.Name("performanceOptimization")
 }
 
 struct PerformanceMetrics {
@@ -172,6 +183,10 @@ struct PerformanceMetrics {
     var frameCount: Int = 0
     var totalFrameTime: CFTimeInterval = 0
     var currentPhase: ScanningPhase = .initializing
+    var processingQuality: ProcessingQuality = .high
+    var updateFrequency: UpdateFrequency = .normal
+    var previewQuality: PreviewQuality = .high
+    var renderQuality: RenderQuality = .high
     
     mutating func updateFrameTime(_ frameDuration: CFTimeInterval) {
         frameCount += 1
@@ -184,10 +199,10 @@ struct PerformanceMetrics {
 }
 
 struct ResourceMetrics {
-    let cpuUsage: Float
-    let memoryUsage: Float
-    let gpuUsage: Float
-    let thermalState: ProcessInfo.ThermalState
+    let cpuUsage: Double
+    let memoryUsage: UInt64
+    let gpuUtilization: Double
+    let frameRate: Double
 }
 
 struct PerformanceThresholds {
@@ -212,6 +227,12 @@ struct PerformanceThresholds {
         maxMemoryUsage = 0.85
         maxGPUUsage = 0.95
     }
+    
+    mutating func setDefault() {
+        maxCPUUsage = 0.8
+        maxMemoryUsage = 0.75
+        maxGPUUsage = 0.9
+    }
 }
 
 enum ScanningPhase {
@@ -233,6 +254,29 @@ enum PerformanceOptimization {
 
 enum PerformanceError: Error {
     case initializationFailed
+}
+
+enum ProcessingQuality {
+    case high
+    case medium
+    case low
+}
+
+enum UpdateFrequency {
+    case normal
+    case reduced
+}
+
+enum PreviewQuality {
+    case high
+    case medium
+    case low
+}
+
+enum RenderQuality {
+    case high
+    case medium
+    case low
 }
 
 // Helper classes for monitoring specific resources

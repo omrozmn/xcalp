@@ -1,38 +1,40 @@
-import Accelerate
 import Foundation
 import Metal
+import MetalKit
 import simd
 
-import ARKit
-
-// swiftlint:disable duplicate_enum_cases
-enum ScanningMode {
+enum ScanningMode: String {
     case lidarPrimary
     case photogrammetrySecondary
     case fusion
 }
-// swiftlint:enable duplicate_enum_cases
 
 final class DataFusionProcessor {
+    // MARK: - Properties
+    
     private var fusionConfig: FusionConfiguration
     private let meshOptimizer: MeshOptimizer
-    private let qualityThreshold: Float = ClinicalConstants.minimumFusionQuality
-    private var lidarData: ARPointCloud?
+    private let qualityThreshold: Float
+    private var lidarData: PointCloud?
     private var photogrammetryData: [PhotogrammetryPoint]?
     private let octree: Octree
     private let device: MTLDevice
     private let commandQueue: MTLCommandQueue
+    
+    // MARK: - Initialization
     
     init() throws {
         guard let device = MTLCreateSystemDefaultDevice(),
               let commandQueue = device.makeCommandQueue() else {
             throw FusionError.initializationFailed
         }
+        
         self.device = device
         self.commandQueue = commandQueue
         self.octree = Octree(maxDepth: 8)
         self.fusionConfig = FusionConfiguration(lidarWeight: 0.5, photoWeight: 0.5)
         self.meshOptimizer = try MeshOptimizer()
+        self.qualityThreshold = ClinicalConstants.minimumFusionQuality
     }
     
     func configureFusion(_ config: FusionConfiguration) {
@@ -361,19 +363,120 @@ final class DataFusionProcessor {
     }
     
     private func validateFusion(_ mesh: OptimizedMesh) -> Float {
-        // Calculate geometric consistency
-        let geometricScore = calculateGeometricConsistency(mesh)
+        // Calculate geometric consistency (40%)
+        let geometricScore = calculateGeometricConsistency(mesh.vertices, mesh.normals)
         
-        // Calculate feature preservation
-        let featureScore = calculateFeaturePreservation(mesh)
+        // Calculate feature preservation (40%)
+        let featureScore = calculateFeaturePreservation(
+            vertices: mesh.vertices,
+            normals: mesh.normals,
+            features: mesh.features
+        )
         
-        // Calculate surface smoothness
-        let smoothnessScore = calculateSurfaceSmoothness(mesh)
+        // Calculate surface smoothness (20%)
+        let smoothnessScore = calculateSurfaceSmoothness(
+            vertices: mesh.vertices,
+            normals: mesh.normals,
+            faces: mesh.faces
+        )
         
-        // Weighted average of quality metrics
-        return geometricScore * 0.4 +
-               featureScore * 0.4 +
-               smoothnessScore * 0.2
+        // Calculate final weighted score
+        let finalScore = geometricScore * 0.4 +
+                        featureScore * 0.4 +
+                        smoothnessScore * 0.2
+        
+        logger.info("""
+            Fusion quality metrics:
+            - Geometric Consistency: \(geometricScore)
+            - Feature Preservation: \(featureScore)
+            - Surface Smoothness: \(smoothnessScore)
+            - Final Score: \(finalScore)
+            """)
+        
+        return finalScore
+    }
+
+    private func calculateGeometricConsistency(_ vertices: [SIMD3<Float>], _ normals: [SIMD3<Float>]) -> Float {
+        var consistency: Float = 0
+        let spatialIndex = SpatialIndex(points: vertices)
+        
+        for (idx, vertex) in vertices.enumerated() {
+            let normal = normals[idx]
+            let neighbors = spatialIndex.findNeighbors(for: vertex, radius: 0.01)
+            
+            if !neighbors.isEmpty {
+                let neighborNormals = neighbors.map { neighborIdx in
+                    normals[neighborIdx]
+                }
+                
+                let averageNormal = normalize(neighborNormals.reduce(.zero, +))
+                consistency += abs(dot(normal, averageNormal))
+            }
+        }
+        
+        return vertices.isEmpty ? 0 : consistency / Float(vertices.count)
+    }
+
+    private func calculateFeaturePreservation(
+        vertices: [SIMD3<Float>],
+        normals: [SIMD3<Float>],
+        features: [MeshFeature]
+    ) -> Float {
+        var preservation: Float = 0
+        
+        for feature in features {
+            let featureNormal = normals[feature.vertexIndex]
+            let neighbors = findNeighborVertices(
+                vertices[feature.vertexIndex],
+                vertices,
+                radius: 0.01
+            )
+            
+            if !neighbors.isEmpty {
+                let curvature = calculateLocalCurvature(
+                    vertices[feature.vertexIndex],
+                    featureNormal,
+                    neighbors
+                )
+                
+                // Higher preservation score for maintained features
+                preservation += 1.0 - curvature
+            }
+        }
+        
+        return features.isEmpty ? 1.0 : preservation / Float(features.count)
+    }
+
+    private func calculateSurfaceSmoothness(
+        vertices: [SIMD3<Float>],
+        normals: [SIMD3<Float>],
+        faces: [Int32]
+    ) -> Float {
+        var smoothness: Float = 0
+        
+        for i in stride(from: 0, to: faces.count, by: 3) {
+            let v1 = vertices[Int(faces[i])]
+            let v2 = vertices[Int(faces[i + 1])]
+            let v3 = vertices[Int(faces[i + 2])]
+            
+            let n1 = normals[Int(faces[i])]
+            let n2 = normals[Int(faces[i + 1])]
+            let n3 = normals[Int(faces[i + 2])]
+            
+            // Calculate normal variation within triangle
+            let normalVariation = (dot(n1, n2) + dot(n2, n3) + dot(n3, n1)) / 3.0
+            
+            // Calculate edge length variation
+            let e1 = length(v2 - v1)
+            let e2 = length(v3 - v2)
+            let e3 = length(v1 - v3)
+            let avgEdge = (e1 + e2 + e3) / 3.0
+            let edgeVariation = 1.0 - (abs(e1 - avgEdge) + abs(e2 - avgEdge) + abs(e3 - avgEdge)) / (3.0 * avgEdge)
+            
+            smoothness += (normalVariation + edgeVariation) * 0.5
+        }
+        
+        return faces.isEmpty ? 0 : smoothness / Float(faces.count / 3)
     }
     
     private func generateConfidenceMap(
@@ -656,11 +759,26 @@ extension DataFusionProcessor {
         lidarConfidence: Float,
         photoConfidence: Float
     ) -> SIMD3<Float> {
-        let totalConfidence = lidarConfidence + photoConfidence
-        let lidarWeight = lidarConfidence / totalConfidence
-        let photoWeight = photoConfidence / totalConfidence
+        let environmentalFactor = assessEnvironmentalConditions()
+        let adaptiveLidarWeight = lidarConfidence * environmentalFactor
+        let adaptivePhotoWeight = photoConfidence * (1 - environmentalFactor)
+        
+        let totalWeight = adaptiveLidarWeight + adaptivePhotoWeight
+        guard totalWeight > 0 else { return lidarPoint }
+        
+        let lidarWeight = adaptiveLidarWeight / totalWeight
+        let photoWeight = adaptivePhotoWeight / totalWeight
         
         return lidarPoint * lidarWeight + photoPoint * photoWeight
+    }
+
+    private func assessEnvironmentalConditions() -> Float {
+        // Prefer LiDAR in good lighting conditions
+        if let lightEstimate = currentFrame?.lightEstimate {
+            let normalizedLighting = Float(lightEstimate.ambientIntensity) / 1000.0
+            return min(max(normalizedLighting, 0.3), 0.7) // Keep between 0.3-0.7
+        }
+        return 0.5 // Default to equal weighting
     }
     
     private func getLidarConfidence(_ point: SIMD3<Float>) -> Float {
@@ -705,10 +823,11 @@ extension DataFusionProcessor {
         return min(max(confidence, 0), 1)
     }
     
-    private func calculateLocalDensity(around point: SIMD3<Float>) -> Float {
-        let radius: Float = 0.01 // 1cm radius
-        let neighborCount = octree.findNeighborsInRadius(point, radius: radius).count
-        return Float(neighborCount) / (4.0/3.0 * .pi * pow(radius, 3))
+    private func calculateLocalDensity(around point: SIMD3<Float>, radius: Float = 0.05) -> Float {
+        let neighbors = octree.findNeighbors(within: radius, of: point)
+        let volume = (4.0 / 3.0) * .pi * pow(radius, 3)
+        
+        return Float(neighbors.count) / volume
     }
     
     private func calculateDepthConsistency(at point: SIMD3<Float>) -> Float {

@@ -286,8 +286,63 @@ class RegulatoryDocumentationGenerator {
 
 extension RegulatoryDocumentationGenerator {
     private func generateClinicalTrialSummary(_ trials: [ClinicalTrialManager.TrialData]) async throws -> String {
-        // Generate clinical trial summary section
-        "" // Placeholder
+        var summary = "\n\n### Clinical Trial Results\n"
+        
+        // Organize trials by phase
+        let initialTrials = trials.filter { if case .initial = $0.phase { return true }; return false }
+        let multiCenterTrials = trials.filter { if case .multiCenter = $0.phase { return true }; return false }
+        let longTermTrials = trials.filter { if case .longTerm = $0.phase { return true }; return false }
+        
+        // Phase 1 Summary
+        summary += "\n#### Phase 1: Initial Validation (n=\(initialTrials.count))\n"
+        let phase1Metrics = calculatePhaseMetrics(initialTrials)
+        summary += generatePhaseMetricsSummary(phase1Metrics)
+        
+        // Phase 2 Summary
+        summary += "\n#### Phase 2: Multi-Center Validation (n=\(multiCenterTrials.count))\n"
+        let phase2Metrics = calculatePhaseMetrics(multiCenterTrials)
+        summary += generatePhaseMetricsSummary(phase2Metrics)
+        
+        // Phase 3 Summary
+        summary += "\n#### Phase 3: Long-Term Follow-up\n"
+        let phase3Metrics = calculatePhaseMetrics(longTermTrials)
+        summary += generatePhaseMetricsSummary(phase3Metrics)
+        
+        return summary
+    }
+
+    private func generatePhaseMetricsSummary(_ metrics: TrialPhaseMetrics) -> String {
+        """
+        - Surface Measurement Accuracy: ±\(String(format: "%.2f", metrics.surfaceAccuracy))mm
+        - Volume Calculation Precision: ±\(String(format: "%.1f", metrics.volumePrecision))%
+        - Graft Planning Accuracy: \(String(format: "%.1f", metrics.graftAccuracy))%
+        - Density Mapping Precision: \(String(format: "%.1f", metrics.densityAccuracy))%
+        - Technical Success Rate: \(String(format: "%.1f", metrics.technicalSuccessRate * 100))%
+        - Clinical Success Rate: \(String(format: "%.1f", metrics.clinicalSuccessRate * 100))%\n
+        """
+    }
+
+    private struct TrialPhaseMetrics {
+        let surfaceAccuracy: Float
+        let volumePrecision: Float
+        let graftAccuracy: Float
+        let densityAccuracy: Float
+        let technicalSuccessRate: Float
+        let clinicalSuccessRate: Float
+    }
+
+    private func calculatePhaseMetrics(_ trials: [ClinicalTrialManager.TrialData]) -> TrialPhaseMetrics {
+        let measurements = trials.map { $0.clinicalMeasurements }
+        let validationResults = trials.map { $0.validationResults }
+        
+        return TrialPhaseMetrics(
+            surfaceAccuracy: measurements.map { $0.surfaceAccuracy }.reduce(0, +) / Float(max(1, measurements.count)),
+            volumePrecision: measurements.map { $0.volumePrecision }.reduce(0, +) / Float(max(1, measurements.count)),
+            graftAccuracy: measurements.map { $0.graftAccuracy }.reduce(0, +) / Float(max(1, measurements.count)),
+            densityAccuracy: measurements.map { $0.densityAccuracy }.reduce(0, +) / Float(max(1, measurements.count)),
+            technicalSuccessRate: Float(validationResults.filter { $0.technicalMetrics.meetsTechnicalRequirements }.count) / Float(max(1, validationResults.count)),
+            clinicalSuccessRate: Float(validationResults.filter { $0.clinicalMetrics.meetsClinicalRequirements }.count) / Float(max(1, validationResults.count))
+        )
     }
     
     private func generateTechnicalValidationSummary(_ reports: [ValidationReport]) async throws -> String {

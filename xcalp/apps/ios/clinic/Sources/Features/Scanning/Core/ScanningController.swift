@@ -94,16 +94,194 @@ final class ScanningController: ObservableObject {
     }
     
     private func handleQualityUpdate(_ metrics: ScanQualityMetrics) {
-        qualityScore = metrics.overallQuality
-        
-        if metrics.overallQuality < 0.7 {
-            logger.warning("Quality below threshold: \(metrics.overallQuality)")
-            Task {
-                await handleScanningFailure(ScanningError.qualityBelowThreshold)
+        Task {
+            do {
+                let quality = metrics.overallQuality
+                qualityScore = quality
+                
+                if quality < ScanningQualityThresholds.minQuality {
+                    logger.warning("Quality below threshold: \(quality)")
+                    
+                    // Check if we need to switch scanning modes
+                    if qualityTracker.isQualityConsistentlyLow {
+                        // Try to improve quality before switching modes
+                        if try await improveQuality() {
+                            logger.info("Successfully improved scanning quality")
+                            return
+                        }
+                        
+                        // If quality can't be improved, switch modes
+                        try await switchScanningMode()
+                    } else {
+                        // Provide guidance for quality improvement
+                        await provideQualityGuidance(metrics)
+                    }
+                }
+            } catch {
+                logger.error("Error handling quality update: \(error.localizedDescription)")
+                await handleScanningFailure(error)
             }
         }
     }
-    
+
+    private func improveQuality() async throws -> Bool {
+        // Try different quality improvement strategies
+        let strategies: [QualityImprovementStrategy] = [
+            .adjustExposure,
+            .increaseDensity,
+            .enhanceLighting,
+            .optimizeDistance
+        ]
+        
+        for strategy in strategies {
+            if try await applyQualityStrategy(strategy) {
+                return true
+            }
+        }
+        
+        return false
+    }
+
+    private func applyQualityStrategy(_ strategy: QualityImprovementStrategy) async throws -> Bool {
+        logger.info("Applying quality improvement strategy: \(strategy)")
+        
+        switch strategy {
+        case .adjustExposure:
+            return try await adjustCameraExposure()
+        case .increaseDensity:
+            return try await increasePointDensity()
+        case .enhanceLighting:
+            return try await suggestLightingImprovements()
+        case .optimizeDistance:
+            return try await optimizeScanningDistance()
+        }
+    }
+
+    private func provideQualityGuidance(_ metrics: ScanQualityMetrics) async {
+        // Analyze metrics to determine the most important improvement needed
+        let guidance: String
+        
+        if metrics.pointDensity < ScanningQualityThresholds.minPointDensity {
+            guidance = "Move the device closer to capture more detail"
+        } else if metrics.surfaceCompleteness < ScanningQualityThresholds.surfaceCompleteness {
+            guidance = "Ensure all areas are properly scanned"
+        } else if metrics.noiseLevel > ScanningQualityThresholds.maxNoiseLevel {
+            guidance = "Hold the device more steady"
+        } else {
+            guidance = "Continue scanning to improve quality"
+        }
+        
+        await MainActor.run {
+            self.guideMessage = guidance
+        }
+    }
+
+    private enum QualityImprovementStrategy {
+        case adjustExposure
+        case increaseDensity
+        case enhanceLighting
+        case optimizeDistance
+    }
+
+    private func adjustCameraExposure() async throws -> Bool {
+        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
+            return false
+        }
+        
+        try await device.lockForConfiguration()
+        defer { device.unlockForConfiguration() }
+        
+        if device.exposureMode == .locked {
+            device.exposureMode = .continuousAutoExposure
+            return true
+        }
+        
+        return false
+    }
+
+    private func increasePointDensity() async throws -> Bool {
+        // Adjust scanning parameters for higher density
+        processingParameters.searchRadius *= 0.8
+        processingParameters.spatialSigma *= 0.9
+        
+        // Wait for next frame to evaluate improvement
+        try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+        
+        return true
+    }
+
+    private func suggestLightingImprovements() async throws -> Bool {
+        // Check current lighting conditions
+        guard let frame = await getCurrentFrame(),
+              let lightEstimate = frame.lightEstimate else {
+            return false
+        }
+        
+        let isLowLight = lightEstimate.ambientIntensity < 100
+        if isLowLight {
+            await MainActor.run {
+                self.guideMessage = "Move to a better lit area"
+            }
+            return true
+        }
+        
+        return false
+    }
+
+    private func optimizeScanningDistance() async throws -> Bool {
+        guard let frame = await getCurrentFrame(),
+              let depthData = frame.sceneDepth?.depthMap else {
+            return false
+        }
+        
+        let averageDepth = try calculateAverageDepth(depthData)
+        let optimalRange = (0.3...0.8) // 30cm to 80cm
+        
+        if !optimalRange.contains(averageDepth) {
+            let guidance = averageDepth < optimalRange.lowerBound
+                ? "Move further from the subject"
+                : "Move closer to the subject"
+            
+            await MainActor.run {
+                self.guideMessage = guidance
+            }
+            return true
+        }
+        
+        return false
+    }
+
+    private func calculateAverageDepth(_ depthMap: CVPixelBuffer) throws -> Float {
+        var totalDepth: Float = 0
+        var validPoints = 0
+        
+        CVPixelBufferLockBaseAddress(depthMap, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(depthMap, .readOnly) }
+        
+        guard let baseAddress = CVPixelBufferGetBaseAddress(depthMap) else {
+            throw ScanningError.invalidFrameData
+        }
+        
+        let width = CVPixelBufferGetWidth(depthMap)
+        let height = CVPixelBufferGetHeight(depthMap)
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(depthMap)
+        
+        for y in 0..<height {
+            for x in 0..<width {
+                let depth = baseAddress.advanced(by: y * bytesPerRow + x * 4)
+                    .assumingMemoryBound(to: Float.self)
+                    .pointee
+                
+                if depth > 0 {
+                    totalDepth += depth
+                    validPoints += 1
+                }
+            }
+        }
+        
+        return validPoints > 0 ? totalDepth / Float(validPoints) : 0
+    }
+
     private func startLiDARScanning() async throws {
         logger.info("Starting LiDAR scanning")
         
@@ -559,6 +737,65 @@ final class ScanningController: ObservableObject {
         func getRecentMetrics(count: Int) -> [(lidarConfidence: Float, photoConfidence: Float)] {
             // Implementation for retrieving recent quality metrics
             return []  // Placeholder
+        }
+    }
+    
+    private func handleScanningError(_ error: Error) async {
+        logger.error("Scanning error encountered: \(error.localizedDescription)")
+        
+        let recovery = ScanningErrorRecovery()
+        if await recovery.attemptRecovery(from: error) {
+            logger.info("Successfully recovered from error")
+            
+            // Reset scanning parameters
+            processingParameters = ProcessingParameters(
+                searchRadius: 0.01,
+                spatialSigma: 0.005,
+                confidenceThreshold: 0.7
+            )
+            
+            // Restart scanning with adjusted parameters
+            await startScanningMode()
+        } else {
+            logger.error("Error recovery failed")
+            await handleUnrecoverableError(error)
+        }
+    }
+
+    private func handleUnrecoverableError(_ error: Error) async {
+        fallbackAttempts += 1
+        
+        if fallbackAttempts < maxFallbackAttempts {
+            // Try switching scanning modes
+            switch currentMode {
+            case .lidar:
+                currentMode = .hybrid
+                logger.info("Switching to hybrid mode after unrecoverable error")
+            case .hybrid:
+                currentMode = .photogrammetry
+                logger.info("Switching to photogrammetry mode after unrecoverable error")
+            case .photogrammetry:
+                throw ScanningError.processingFailed
+            }
+            
+            // Initialize guidance system with new mode
+            guidanceSystem = ScanningGuidanceSystem()
+            await guidanceSystem.startGuidance()
+            
+            // Reset quality monitoring
+            qualityMonitor.stopMonitoring()
+            qualityMonitor = ScanQualityMonitor()
+            qualityMonitor.startMonitoring()
+            
+            // Restart scanning with new mode
+            await startScanningMode()
+        } else {
+            // Notify user of scanning failure
+            NotificationCenter.default.post(
+                name: Notification.Name("ScanningFailed"),
+                object: nil,
+                userInfo: ["error": error]
+            )
         }
     }
 }

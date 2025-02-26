@@ -25,7 +25,7 @@
 import Foundation
 
 /// Class which implements the various `URLSessionDelegate` methods to connect various Alamofire features.
-open class SessionDelegate: NSObject {
+open class SessionDelegate: NSObject, @unchecked Sendable {
     private let fileManager: FileManager
 
     weak var stateProvider: SessionStateProvider?

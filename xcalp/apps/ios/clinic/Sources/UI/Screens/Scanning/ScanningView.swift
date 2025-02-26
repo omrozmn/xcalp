@@ -17,342 +17,239 @@ public struct ScanningView: View {
             ZStack {
                 ARViewContainer(
                     isScanning: viewStore.isScanning,
-                    scanQuality: viewStore.scanQuality
+                    scanningMode: viewStore.scanningMode,
+                    onFrameProcessed: { result in
+                        viewStore.send(.frameProcessed(result))
+                    }
                 )
-                .accessibilityElement(children: .contain)
-                .accessibilityLabel("3D scanner view")
                 
                 VStack {
-                    // Top status bar
-                    HStack {
-                        LidarStatusView(status: viewStore.lidarStatus)
-                        Spacer()
-                        ScanQualityIndicator(quality: viewStore.scanQuality)
-                    }
-                    .padding()
-                    .background(Color.black.opacity(0.5))
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("Scanner status")
+                    // Status overlay
+                    ScanningStatusOverlay(
+                        status: viewStore.scanningStatus,
+                        quality: viewStore.currentQuality,
+                        progress: viewStore.scanningProgress
+                    )
                     
                     Spacer()
                     
-                    // Guide overlay with accessibility
-                    if let guide = viewStore.currentGuide {
-                        GuideOverlay(guide: guide)
-                            .accessibilityAddTraits(.isStaticText)
-                            .accessibilityLabel(guide.accessibilityDescription)
-                    }
-                    
-                    // Bottom control panel with accessibility
-                    ControlPanel(
+                    // Controls
+                    ScanningControlsView(
                         isScanning: viewStore.isScanning,
-                        voiceGuidanceEnabled: viewStore.voiceGuidanceEnabled,
-                        onStartScanning: { viewStore.send(.startScanning) },
-                        onStopScanning: { viewStore.send(.stopScanning) },
-                        onToggleVoiceGuidance: { viewStore.send(.toggleVoiceGuidance) },
-                        onCapture: { viewStore.send(.captureButtonTapped) }
+                        mode: viewStore.scanningMode,
+                        onStartScanning: {
+                            viewStore.send(.startScanningTapped)
+                        },
+                        onStopScanning: {
+                            viewStore.send(.stopScanningTapped)
+                        },
+                        onModeChanged: { mode in
+                            viewStore.send(.scanningModeChanged(mode))
+                        }
                     )
-                    .accessibilityElement(children: .contain)
-                    .accessibilityLabel("Scanning controls")
                 }
+                .padding()
             }
+            .navigationTitle("3D Scanning")
+            .navigationBarTitleDisplayMode(.inline)
             .alert(
-                item: viewStore.binding(
-                    get: \.error,
-                    send: { _ in .dismissError }
-                )
-            ) { error in
-                Alert(
-                    title: Text("Error"),
-                    message: Text(error.localizedDescription),
-                    dismissButton: .default(Text("OK"))
-                )
+                "Scanning Error",
+                isPresented: viewStore.binding(
+                    get: { $0.error != nil },
+                    send: ScanningFeature.Action.dismissError
+                ),
+                presenting: viewStore.error
+            ) { _ in
+                Button("OK") { viewStore.send(.dismissError) }
+            } message: { error in
+                Text(error.localizedDescription)
             }
             .onAppear { viewStore.send(.onAppear) }
         }
     }
 }
 
-// MARK: - Supporting Views
 private struct ARViewContainer: UIViewRepresentable {
     let isScanning: Bool
-    let scanQuality: ScanningFeature.ScanQuality
-    
-    class Coordinator: NSObject, ARSessionDelegate {
-        var parent: ARViewContainer
-        var meshAnchors: [UUID: ARMeshAnchor] = [:]
-        
-        init(_ parent: ARViewContainer) {
-            self.parent = parent
-        }
-        
-        func session(_ session: ARSession, didAdd anchors: [ARAnchor]) {
-            for anchor in anchors {
-                guard let meshAnchor = anchor as? ARMeshAnchor else { continue }
-                meshAnchors[meshAnchor.identifier] = meshAnchor
-            }
-        }
-        
-        func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) {
-            for anchor in anchors {
-                guard let meshAnchor = anchor as? ARMeshAnchor else { continue }
-                meshAnchors[meshAnchor.identifier] = meshAnchor
-            }
-        }
-        
-        func session(_ session: ARSession, didRemove anchors: [ARAnchor]) {
-            for anchor in anchors {
-                meshAnchors.removeValue(forKey: anchor.identifier)
-            }
-        }
-    }
+    let scanningMode: ScanningMode
+    let onFrameProcessed: (FrameProcessingResult) -> Void
     
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
     
-    func makeUIView(context: Context) -> ARView {
-        let view = ARView(frame: .zero)
-        view.session.delegate = context.coordinator
-        
-        // Configure AR session
-        let config = ARWorldTrackingConfiguration()
-        config.frameSemantics = [.sceneDepth, .smoothedSceneDepth]
+    func makeUIView(context: Context) -> ARSCNView {
+        let arView = ARSCNView()
+        arView.delegate = context.coordinator
+        arView.session.delegate = context.coordinator
+        return arView
+    }
+    
+    func updateUIView(_ uiView: ARSCNView, context: Context) {
+        if isScanning {
+            startScanning(uiView, context: context)
+        } else {
+            stopScanning(uiView)
+        }
+    }
+    
+    private func startScanning(_ view: ARSCNView, context: Context) {
+        let configuration = ARWorldTrackingConfiguration()
+        configuration.frameSemantics = [.sceneDepth, .smoothedSceneDepth]
         
         if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
-            config.sceneReconstruction = .mesh
+            configuration.sceneReconstruction = .mesh
         }
         
-        // Enable LiDAR-specific features if available
-        if type(of: config).supportsFrameSemantics(.sceneDepth) {
-            config.frameSemantics.insert(.sceneDepth)
-        }
-        
-        // Enable people occlusion for better segmentation
-        if type(of: config).supportsFrameSemantics(.personSegmentationWithDepth) {
-            config.frameSemantics.insert(.personSegmentationWithDepth)
-        }
-        
-        view.session.run(config)
-        
-        // Add tap gesture for focus point
-        let tapRecognizer = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap))
-        view.addGestureRecognizer(tapRecognizer)
-        
-        return view
+        view.session.run(configuration)
     }
     
-    func updateUIView(_ uiView: ARView, context: Context) {
-        if isScanning {
-            // Update visualization based on scan quality
-            switch scanQuality {
-            case .good:
-                uiView.debugOptions = []
-            case .fair:
-                uiView.debugOptions = [.showSceneUnderstanding]
-            case .poor:
-                uiView.debugOptions = [.showSceneUnderstanding, .showWorldOrigin]
-            case .unknown:
-                uiView.debugOptions = [.showWorldOrigin]
-            }
-        } else {
-            uiView.debugOptions = []
-        }
+    private func stopScanning(_ view: ARSCNView) {
+        view.session.pause()
     }
-}
-
-extension ARViewContainer.Coordinator {
-    @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
-        guard let view = recognizer.view as? ARView else { return }
-        let location = recognizer.location(in: view)
+    
+    class Coordinator: NSObject, ARSCNViewDelegate, ARSessionDelegate {
+        let parent: ARViewContainer
         
-        // Perform hit testing
-        let results = view.raycast(from: location, allowing: .estimatedPlane, alignment: .any)
+        init(_ parent: ARViewContainer) {
+            self.parent = parent
+        }
         
-        if let firstResult = results.first {
-            // Add a focus point visualization
-            let focusEntity = ModelEntity(
-                mesh: .generateSphere(radius: 0.01),
-                materials: [SimpleMaterial(color: .yellow, isMetallic: true)]
-            )
+        func session(_ session: ARSession, didUpdate frame: ARFrame) {
+            guard parent.isScanning else { return }
             
-            let anchor = AnchorEntity(world: firstResult.worldTransform)
-            anchor.addChild(focusEntity)
-            view.scene.addAnchor(anchor)
-            
-            // Animate focus point
-            focusEntity.scale = .zero
-            focusEntity.transform.scale = .zero
-            
-            withAnimation(.easeInOut(duration: 0.2)) {
-                focusEntity.scale = .one
-            }
-            
-            // Remove after delay
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    focusEntity.scale = .zero
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    anchor.removeFromParent()
+            Task {
+                do {
+                    let coordinator = try await ScanningSystemCoordinator(device: MTLCreateSystemDefaultDevice()!)
+                    let result = try await coordinator.processFrame(frame)
+                    await MainActor.run {
+                        parent.onFrameProcessed(result)
+                    }
+                } catch {
+                    print("Error processing frame: \(error)")
                 }
             }
         }
     }
 }
 
-private struct LidarStatusView: View {
-    let status: ScanningFeature.LidarStatus
+private struct ScanningStatusOverlay: View {
+    let status: ScanningStatus
+    let quality: QualityAssessment?
+    let progress: Double
     
     var body: some View {
-        Label(
-            title: { Text(status.description) },
-            icon: { Image(systemName: status.iconName) }
-        )
-        .foregroundColor(status.color)
-    }
-}
-
-private struct ScanQualityIndicator: View {
-    let quality: ScanningFeature.ScanQuality
-    
-    var body: some View {
-        Label(
-            title: { Text(quality.description) },
-            icon: { Image(systemName: quality.iconName) }
-        )
-        .foregroundColor(quality.color)
-    }
-}
-
-private struct GuideOverlay: View {
-    let guide: ScanningFeature.ScanningGuide
-    
-    var body: some View {
-        Text(guide.message)
-            .font(XcalpTypography.title3)
-            .foregroundColor(.white)
-            .padding()
-            .background(Color.black.opacity(0.7))
-            .cornerRadius(XcalpLayout.cornerRadius)
-    }
-}
-
-private struct ControlPanel: View {
-    let isScanning: Bool
-    let voiceGuidanceEnabled: Bool
-    let onStartScanning: () -> Void
-    let onStopScanning: () -> Void
-    let onToggleVoiceGuidance: () -> Void
-    let onCapture: () -> Void
-    
-    var body: some View {
-        VStack(spacing: XcalpLayout.spacing) {
-            // Voice guidance toggle
-            Toggle(
-                "Voice Guidance",
-                isOn: .constant(voiceGuidanceEnabled)
-            )
-            .onChange(of: voiceGuidanceEnabled) { _ in
-                onToggleVoiceGuidance()
+        VStack(spacing: 8) {
+            Text(status.description)
+                .font(.headline)
+            
+            if let quality = quality {
+                QualityIndicator(quality: quality)
             }
             
-            HStack(spacing: XcalpLayout.spacing) {
-                // Start/Stop button
-                Button(
-                    action: { isScanning ? onStopScanning() : onStartScanning() }
-                ) {
-                    Label(
-                        isScanning ? "Stop" : "Start",
-                        systemImage: isScanning ? "stop.fill" : "play.fill"
-                    )
-                }
-                .buttonStyle(.borderedProminent)
-                
-                // Capture button
-                Button(action: onCapture) {
-                    Label("Capture", systemImage: "camera.fill")
-                        .font(XcalpTypography.title2)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!isScanning)
-            }
+            ProgressView(value: progress)
+                .progressViewStyle(.linear)
         }
         .padding()
-        .background(Color(UIColor.systemBackground).opacity(0.9))
+        .background(.ultraThinMaterial)
+        .cornerRadius(12)
     }
 }
 
-// MARK: - Extensions
-extension ScanningFeature.LidarStatus {
-    var description: String {
-        switch self {
-        case .unknown: return "LiDAR Status Unknown"
-        case .notAvailable: return "LiDAR Not Available"
-        case .calibrating: return "Calibrating LiDAR"
-        case .ready: return "LiDAR Ready"
+private struct ScanningControlsView: View {
+    let isScanning: Bool
+    let mode: ScanningMode
+    let onStartScanning: () -> Void
+    let onStopScanning: () -> Void
+    let onModeChanged: (ScanningMode) -> Void
+    
+    var body: some View {
+        HStack(spacing: 20) {
+            Picker("Mode", selection: .init(
+                get: { mode },
+                set: onModeChanged
+            )) {
+                Text("LiDAR").tag(ScanningMode.lidar)
+                Text("Photo").tag(ScanningMode.photogrammetry)
+                Text("Hybrid").tag(ScanningMode.hybrid)
+            }
+            .pickerStyle(.segmented)
+            
+            Button(isScanning ? "Stop" : "Start") {
+                if isScanning {
+                    onStopScanning()
+                } else {
+                    onStartScanning()
+                }
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding()
+        .background(.ultraThinMaterial)
+        .cornerRadius(12)
+    }
+}
+
+private struct QualityIndicator: View {
+    let quality: QualityAssessment
+    
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: qualityIcon)
+                .foregroundColor(qualityColor)
+            Text(qualityText)
+                .font(.caption)
         }
     }
     
-    var iconName: String {
-        switch self {
-        case .unknown: return "questionmark.circle"
-        case .notAvailable: return "xmark.circle"
-        case .calibrating: return "arrow.triangle.2.circlepath"
-        case .ready: return "checkmark.circle"
+    private var qualityIcon: String {
+        switch quality.overallQuality {
+        case .high: return "checkmark.circle.fill"
+        case .medium: return "exclamationmark.circle.fill"
+        case .low: return "xmark.circle.fill"
         }
     }
     
-    var color: Color {
-        switch self {
-        case .unknown: return .gray
-        case .notAvailable: return .red
-        case .calibrating: return .yellow
-        case .ready: return .green
+    private var qualityColor: Color {
+        switch quality.overallQuality {
+        case .high: return .green
+        case .medium: return .yellow
+        case .low: return .red
+        }
+    }
+    
+    private var qualityText: String {
+        switch quality.overallQuality {
+        case .high: return "High Quality"
+        case .medium: return "Medium Quality"
+        case .low: return "Low Quality"
         }
     }
 }
 
-extension ScanningFeature.ScanQuality {
-    var description: String {
-        switch self {
-        case .unknown: return "Unknown Quality"
-        case .poor: return "Poor Quality"
-        case .fair: return "Fair Quality"
-        case .good: return "Good Quality"
-        case .excellent: return "Excellent Quality"
-        }
-    }
+// MARK: - Supporting Types
+public enum ScanningStatus: CustomStringConvertible {
+    case ready
+    case initializing
+    case scanning
+    case processing
+    case completed
+    case failed(Error)
     
-    var iconName: String {
+    public var description: String {
         switch self {
-        case .unknown: return "questionmark.circle"
-        case .poor: return "exclamationmark.circle"
-        case .fair: return "hand.thumbsup"
-        case .good: return "star.fill"
-        case .excellent: return "star.circle.fill"
-        }
-    }
-    
-    var color: Color {
-        switch self {
-        case .unknown: return .gray
-        case .poor: return .red
-        case .fair: return .yellow
-        case .good: return .green
-        case .excellent: return .blue
+        case .ready: return "Ready to scan"
+        case .initializing: return "Initializing..."
+        case .scanning: return "Scanning in progress..."
+        case .processing: return "Processing scan..."
+        case .completed: return "Scan completed"
+        case .failed(let error): return "Error: \(error.localizedDescription)"
         }
     }
 }
 
-extension ScanningFeature.ScanningGuide {
-    var message: String {
-        switch self {
-        case .moveCloser: return "Move closer to the subject"
-        case .moveFarther: return "Move farther from the subject"
-        case .moveSlower: return "Move the device more slowly"
-        case .holdSteady: return "Hold the device steady"
-        case .scanComplete: return "Scan complete!"
-        }
-    }
+public enum ScanningQuality: Equatable {
+    case high
+    case medium
+    case low
 }

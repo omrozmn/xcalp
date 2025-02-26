@@ -1,13 +1,13 @@
-import ARKit
-import Core
 import Foundation
 import Metal
 import MetalKit
+import ARKit
 import os.log
 
 // MARK: - Error Types
 
 enum MeshProcessingError: Error {
+
     case initializationFailed
     case insufficientPoints
     case poissonSolverFailed
@@ -20,6 +20,7 @@ enum MeshProcessingError: Error {
 // MARK: - Quality Metrics
 
 struct MeshQualityMetrics {
+
     let pointDensity: Double // points/cm²
     let surfaceCompleteness: Double // percentage
     let noiseLevel: Double // mm
@@ -36,6 +37,7 @@ struct MeshQualityMetrics {
 // MARK: - Configuration
 
 enum MeshProcessingConfig {
+
     static let minimumPointDensity: Double = 500.0
     static let surfaceCompletenessThreshold: Double = 0.98
     static let maxNoiseLevel: Double = 0.1
@@ -51,7 +53,7 @@ final class MeshProcessor {
     private let device: MTLDevice
     private let commandQueue: MTLCommandQueue
     private let solver: ConjugateGradientSolver
-    //private let meshOptimizer: MeshOptimizer
+    private let meshOptimizer: MeshOptimizer?
     
     init() throws {
         guard let device = MTLCreateSystemDefaultDevice(),
@@ -63,10 +65,12 @@ final class MeshProcessor {
         self.device = device
         self.commandQueue = commandQueue
         self.solver = try ConjugateGradientSolver(device: device)
-        //self.meshOptimizer = try MeshOptimizer()
+        self.meshOptimizer = try? MeshOptimizer()
         
         logger.info("MeshProcessor initialized successfully")
     }
+    
+    // MARK: - Public Methods
     
     func processPointCloud(
         _ points: [SIMD3<Float>],
@@ -76,37 +80,37 @@ final class MeshProcessor {
         
         try validateInput(points: points)
         
-        // Build Octree
         let octree = buildOctree(vertices: points, normals: normals)
-        
-        // Setup Poisson System
         let poissonEquation = try setupPoissonSystem(octree)
         
-        // Solve Poisson Equation
         let initialGuess = [Float](repeating: 0, count: poissonEquation.A.size)
-        guard let solution = PoissonEquationSolver.solve(poissonEquation: poissonEquation, initialGuess: initialGuess, tolerance: 1e-6, maxIterations: 100) else {
+        let solution = try await solver.solve(
+            matrix: poissonEquation.A,
+            vector: poissonEquation.b,
+            initialGuess: initialGuess,
+            tolerance: 1e-6,
+            maxIterations: 100
+        )
+        
+        guard let meshSolution = solution else {
             logger.error("Poisson solver failed")
             throw MeshProcessingError.poissonSolverFailed
         }
         
-        // Update Octree values
-        octree.updateValues(with: solution)
+        octree.updateValues(with: meshSolution)
         
-        // Extract IsoSurface
         guard let mesh = try extractIsoSurface(from: octree) else {
             logger.error("Failed to extract iso-surface")
             throw MeshProcessingError.surfaceReconstructionFailed
         }
         
-        // Validate Mesh Quality
         try validateMeshQuality(mesh)
         
         logger.info("Mesh processing completed successfully")
-        
-        // Create ARMeshAnchor
-        let anchor = createARMeshAnchor(from: mesh)
-        return anchor
+        return createARMeshAnchor(from: mesh)
     }
+    
+    // MARK: - Private Methods
     
     private func validateInput(points: [SIMD3<Float>]) throws {
         guard points.count >= 1000 else {
@@ -122,25 +126,21 @@ final class MeshProcessor {
     }
     
     private func buildOctree(vertices: [SIMD3<Float>], normals: [SIMD3<Float>]) -> Octree {
-        let octree = Octree(vertices: vertices, normals: normals, maxDepth: MeshProcessingConfig.octreeMaxDepth)
-        return octree
+        Octree(vertices: vertices, 
+               normals: normals, 
+               maxDepth: MeshProcessingConfig.octreeMaxDepth)
     }
     
     private func setupPoissonSystem(_ octree: Octree) throws -> PoissonEquation {
-        return try PoissonEquationSolver.setup(octree: octree)
+        PoissonEquationSolver.setup(octree: octree)
     }
     
-   private func extractIsoSurface(from octree: Octree) throws -> ARMeshGeometry {
-        // Extract vertices and faces from octree
-        var vertices: [Float] = []
-        var faces: [Int32] = []
-        
-        // Create ARMeshGeometry
-        
-        
-        let geometry = ARMeshGeometry()
-        return geometry
+    private func extractIsoSurface(from octree: Octree) throws -> ARMeshGeometry? {
+        let extractor = MarchingCubesExtractor(device: device)
+        return try extractor.extract(from: octree)
     }
+    
+    // MARK: - Quality Assessment Methods
     
     private func validateMeshQuality(_ mesh: ARMeshGeometry) throws {
         let quality = calculateMeshQuality(mesh)
@@ -212,7 +212,8 @@ final class MeshProcessor {
         )
     }
 
-    // Helper functions for quality calculations
+    // MARK: - Helper Methods for Quality Calculations
+    
     private func calculateMeshSurfaceArea(_ vertices: [SIMD3<Float>], _ faces: [Int32]) -> Double {
         var totalArea: Double = 0
         
@@ -269,7 +270,11 @@ final class MeshProcessor {
         return Double(totalDeviation / Float(vertices.count))
     }
 
-    private func calculateFeaturePreservation(vertices: [SIMD3<Float>], normals: [SIMD3<Float>], faces: [Int32]) -> Double {
+    private func calculateFeaturePreservation(
+        vertices: [SIMD3<Float>], 
+        normals: [SIMD3<Float>], 
+        faces: [Int32]
+    ) -> Double {
         var preservationScore: Float = 0
         var featureCount: Int = 0
         
@@ -308,10 +313,14 @@ final class MeshProcessor {
         return featureCount > 0 ? Double(preservationScore / Float(featureCount)) * 100 : 100
     }
 
-    private func findNeighborVertices(_ vertex: SIMD3<Float>, _ vertices: [SIMD3<Float>], radius: Float) -> [SIMD3<Float>] {
+    private func findNeighborVertices(
+        _ vertex: SIMD3<Float>, 
+        _ vertices: [SIMD3<Float>], 
+        radius: Float
+    ) -> [SIMD3<Float>] {
         vertices.filter { neighbor in
-            let dist = length(neighbor - vertex)
-            return dist > Float.ulpOfOne && dist < radius
+            let distance = length(neighbor - vertex)
+            return distance > Float.ulpOfOne && distance < radius
         }
     }
 
@@ -342,7 +351,11 @@ final class MeshProcessor {
         return curvature * 0.6 + normalConsistency * 0.4
     }
 
-    private func calculateLocalCurvature(_ vertex: SIMD3<Float>, _ normal: SIMD3<Float>, _ neighbors: [SIMD3<Float>]) -> Float {
+    private func calculateLocalCurvature(
+        _ vertex: SIMD3<Float>, 
+        _ normal: SIMD3<Float>, 
+        _ neighbors: [SIMD3<Float>]
+    ) -> Float {
         let projectedNeighbors = neighbors.map { neighbor -> Float in
             let toNeighbor = normalize(neighbor - vertex)
             return abs(dot(toNeighbor, normal))
@@ -356,8 +369,6 @@ final class MeshProcessor {
     }
     
     private func createARMeshAnchor(from mesh: ARMeshGeometry) -> ARMeshAnchor {
-        // Create ARMeshAnchor
-        let anchor = ARMeshAnchor(geometry: mesh, transform: .identity)
-        return anchor
+        ARMeshAnchor(geometry: mesh, transform: .identity)
     }
 }

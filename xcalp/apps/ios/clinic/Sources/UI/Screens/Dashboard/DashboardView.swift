@@ -12,41 +12,98 @@ public struct DashboardView: View {
         WithViewStore(store, observe: { $0 }) { viewStore in
             ScrollView {
                 VStack(spacing: 16) {
-                    // Status bar
                     ConnectionStatusView(isOnline: viewStore.isOnline)
+                        .accessibility(label: Text(viewStore.isOnline ? "System online" : "System offline"))
+                        .accessibility(hint: Text(viewStore.isOnline ? "All features available" : "Limited features available"))
                     
-                    // Today's Schedule
-                    TodayScheduleSection(appointments: viewStore.todaySchedule)
-                    
-                    // Recent Patients
-                    RecentPatientsSection(patients: viewStore.recentPatients)
-                    
-                    // Quick Actions
-                    QuickActionsGrid(actions: viewStore.quickActions) { action in
-                        viewStore.send(.quickActionSelected(action))
+                    if viewStore.isRefreshing && viewStore.todaySchedule.isEmpty {
+                        LoadingView()
+                    } else {
+                        ContentView(viewStore: viewStore)
                     }
-                    
-                    // Statistics
-                    StatisticsPanel(stats: viewStore.statistics)
                 }
                 .padding()
+                .animation(.easeInOut, value: viewStore.isRefreshing)
             }
             .navigationTitle("Dashboard")
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        viewStore.send(.profileButtonTapped)
-                    } label: {
-                        Image(systemName: "person.circle")
-                    }
+                    ProfileButton(viewStore: viewStore)
                 }
             }
             .refreshable {
+                HapticFeedback.light.play()
                 await viewStore.send(.refresh, while: \.isRefreshing)
             }
-            .onAppear {
-                viewStore.send(.onAppear)
+            .alert(
+                "Error",
+                isPresented: viewStore.binding(
+                    get: { $0.errorMessage != nil },
+                    send: DashboardFeature.Action.dismissError
+                ),
+                presenting: viewStore.errorMessage
+            ) { _ in
+                Button("OK") { viewStore.send(.dismissError) }
+                if viewStore.isOnline {
+                    Button("Retry") { viewStore.send(.refresh) }
+                }
+            } message: { message in
+                Text(message)
             }
+            .onAppear { viewStore.send(.onAppear) }
+        }
+    }
+}
+
+// MARK: - Subviews
+private struct LoadingView: View {
+    var body: some View {
+        VStack(spacing: 20) {
+            ProgressView()
+                .progressViewStyle(.circular)
+                .scaleEffect(1.5)
+            Text("Loading dashboard data...")
+                .xcalpText(.body)
+        }
+        .frame(maxWidth: .infinity, minHeight: 300)
+    }
+}
+
+private struct ContentView: View {
+    let viewStore: ViewStore<DashboardFeature.State, DashboardFeature.Action>
+    
+    var body: some View {
+        VStack(spacing: 16) {
+            TodayScheduleSection(appointments: viewStore.todaySchedule)
+                .accessibility(label: Text("Today's schedule"))
+            
+            RecentPatientsSection(patients: viewStore.recentPatients)
+                .accessibility(label: Text("Recent patients"))
+            
+            QuickActionsGrid(actions: viewStore.quickActions) { action in
+                HapticFeedback.selection.play()
+                viewStore.send(.quickActionSelected(action))
+            }
+            .accessibility(label: Text("Quick actions"))
+            
+            StatisticsPanel(stats: viewStore.statistics)
+                .accessibility(label: Text("Clinic statistics"))
+                .transition(.scale.combined(with: .opacity))
+        }
+    }
+}
+
+private struct ProfileButton: View {
+    let viewStore: ViewStore<DashboardFeature.State, DashboardFeature.Action>
+    
+    var body: some View {
+        Button {
+            HapticFeedback.light.play()
+            viewStore.send(.profileButtonTapped)
+        } label: {
+            Image(systemName: "person.circle")
+                .accessibility(label: Text("Profile settings"))
         }
     }
 }

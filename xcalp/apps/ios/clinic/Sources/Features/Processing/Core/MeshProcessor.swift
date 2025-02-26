@@ -1,8 +1,8 @@
+import Accelerate
+import ARKit
 import Foundation
 import Metal
 import MetalKit
-import ARKit
-import Accelerate
 import os.log
 
 final class MeshProcessor {
@@ -10,6 +10,9 @@ final class MeshProcessor {
     private let logger = Logger(subsystem: "com.xcalp.clinic", category: "MeshProcessor")
     private let device: MTLDevice
     private let commandQueue: MTLCommandQueue
+    private var currentMesh: MeshData?
+    
+    // MARK: - Initialization
     
     private init() {
         guard let metalDevice = MTLCreateSystemDefaultDevice(),
@@ -20,62 +23,39 @@ final class MeshProcessor {
         self.commandQueue = queue
     }
     
-    // Process ARFrame for mesh generation
+    // MARK: - Public Methods
+    
     func processFrame(_ frame: ARFrame) async throws -> MeshData {
         logger.info("Processing frame for mesh generation")
-        
-        // Extract point cloud from frame
         let points = try await extractPointCloud(from: frame)
-        
-        // Generate mesh using Poisson surface reconstruction
         var mesh = try await performPoissonReconstruction(points: points)
-        
-        // Post-process the mesh
         mesh = try await postProcessMesh(mesh)
-        
-        // Validate mesh quality
-        let quality = try await validateMeshQuality(mesh)
-        if quality < 0.8 {
-            throw ProcessingError.qualityBelowThreshold
-        }
-        
+        currentMesh = mesh
         return mesh
     }
     
-    // Get current processed mesh
     func getCurrentMesh() async throws -> MeshData {
-        // Implementation for retrieving current mesh state
         guard let mesh = currentMesh else {
             throw ProcessingError.noMeshAvailable
         }
         return mesh
     }
     
-    // Remove noise from mesh
     func removeNoise(from mesh: MeshData) async throws -> MeshData {
         logger.info("Removing noise from mesh")
-        
-        // Apply statistical outlier removal
         var cleanedMesh = try await removeStatisticalOutliers(mesh)
-        
-        // Apply Laplacian smoothing
         cleanedMesh = try await applyLaplacianSmoothing(cleanedMesh)
-        
         return cleanedMesh
     }
     
-    // Optimize mesh for better performance
     func optimizeMesh(_ mesh: MeshData) async throws -> MeshData {
         logger.info("Optimizing mesh")
-        
-        // Decimate mesh while preserving features
         var optimizedMesh = try await decimateMesh(mesh)
-        
-        // Optimize vertex cache
         optimizedMesh = try await optimizeVertexCache(optimizedMesh)
-        
         return optimizedMesh
     }
+    
+    // MARK: - Private Methods
     
     private func extractPointCloud(from frame: ARFrame) async throws -> [SIMD3<Float>] {
         guard let depthMap = frame.sceneDepth?.depthMap,
@@ -90,12 +70,15 @@ final class MeshProcessor {
         CVPixelBufferLockBaseAddress(depthMap, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(depthMap, .readOnly) }
         
-        let baseAddress = CVPixelBufferGetBaseAddress(depthMap)
+        guard let baseAddress = CVPixelBufferGetBaseAddress(depthMap) else {
+            throw ProcessingError.invalidInput
+        }
+        
         let bytesPerRow = CVPixelBufferGetBytesPerRow(depthMap)
         
         for y in 0..<height {
             for x in 0..<width {
-                let depth = float4(baseAddress!.advanced(by: y * bytesPerRow + x * 4)
+                let depth = float4(baseAddress.advanced(by: y * bytesPerRow + x * 4)
                     .assumingMemoryBound(to: Float.self).pointee)
                 
                 if depth.w > 0 {
@@ -109,54 +92,44 @@ final class MeshProcessor {
     }
     
     private func performPoissonReconstruction(points: [SIMD3<Float>]) async throws -> MeshData {
-        // Implementation of Poisson surface reconstruction
-        // This is a complex algorithm that generates a watertight mesh from point cloud
         logger.info("Performing Poisson surface reconstruction")
-        
-        // Convert points to octree representation
         let octree = try await buildOctree(from: points)
-        
-        // Solve Poisson equation
         let solution = try await solvePoissonEquation(octree)
-        
-        // Extract mesh from solution
         return try await extractMeshFromSolution(solution)
     }
     
     private func removeStatisticalOutliers(_ mesh: MeshData) async throws -> MeshData {
-        // Implementation of statistical outlier removal
-        // Removes points that are statistically far from their neighbors
-        return mesh // Placeholder
+        let outlierProcessor = OutlierProcessor(kNeighbors: 20, stdDevThreshold: 2.0)
+        return try await outlierProcessor.process(mesh)
     }
     
     private func applyLaplacianSmoothing(_ mesh: MeshData) async throws -> MeshData {
-        // Implementation of Laplacian smoothing
-        // Smooths the mesh while preserving features
-        return mesh // Placeholder
+        let smoother = LaplacianSmoother(iterations: 3, lambda: 0.5)
+        return try await smoother.smooth(mesh)
     }
     
     private func decimateMesh(_ mesh: MeshData) async throws -> MeshData {
-        // Implementation of mesh decimation
-        // Reduces polygon count while preserving shape
-        return mesh // Placeholder
+        let decimator = MeshDecimator(targetReduction: 0.5, preserveFeatures: true)
+        return try await decimator.decimate(mesh)
     }
     
     private func optimizeVertexCache(_ mesh: MeshData) async throws -> MeshData {
-        // Implementation of vertex cache optimization
-        // Improves rendering performance
-        return mesh // Placeholder
+        let optimizer = VertexCacheOptimizer()
+        return try await optimizer.optimize(mesh)
     }
     
     private func validateMeshQuality(_ mesh: MeshData) async throws -> Double {
-        // Implement mesh quality validation
-        // Checks various metrics like surface continuity, vertex density, etc.
-        return 1.0 // Placeholder
+        let analyzer = MeshQualityAnalyzer()
+        let quality = try await analyzer.analyze(mesh)
+        guard quality >= 0.8 else {
+            throw ProcessingError.qualityBelowThreshold
+        }
+        return quality
     }
-    
-    private var currentMesh: MeshData?
 }
 
 // MARK: - Supporting Types
+
 enum ProcessingError: Error {
     case invalidInput
     case processingFailed
@@ -164,20 +137,93 @@ enum ProcessingError: Error {
     case noMeshAvailable
 }
 
-// Additional helper functions will be implemented in following updates
+// MARK: - Private Extensions
+
 private extension MeshProcessor {
-    func buildOctree(from points: [SIMD3<Float>]) async throws -> Any {
-        // Octree construction implementation
-        fatalError("Not implemented")
+    func buildOctree(from points: [SIMD3<Float>]) async throws -> Octree {
+        let boundingBox = points.reduce(BoundingBox()) { box, point in
+            var newBox = box
+            newBox.union(with: point)
+            return newBox
+        }
+        
+        let octree = Octree(maxDepth: 8)
+        for point in points {
+            octree.insert(point)
+        }
+        
+        return octree
     }
     
-    func solvePoissonEquation(_ octree: Any) async throws -> Any {
-        // Poisson equation solver implementation
-        fatalError("Not implemented")
+    func solvePoissonEquation(_ octree: Octree) async throws -> [Float] {
+        let systemMatrix = try await buildPoissonMatrix(octree)
+        let rhsVector = try await buildRHSVector(octree)
+        
+        let solver = ConjugateGradientSolver()
+        let solution = try await solver.solve(
+            matrix: systemMatrix,
+            vector: rhsVector,
+            tolerance: 1e-6,
+            maxIterations: 1000
+        )
+        
+        guard let result = solution else {
+            throw ProcessingError.processingFailed
+        }
+        
+        return result
     }
     
-    func extractMeshFromSolution(_ solution: Any) async throws -> MeshData {
-        // Mesh extraction implementation
-        fatalError("Not implemented")
+    func extractMeshFromSolution(_ solution: [Float]) async throws -> MeshData {
+        let gridSize = SIMD3<Int>(64, 64, 64)
+        let meshExtractor = MarchingCubes(gridSize: gridSize)
+        
+        let vertices = try await meshExtractor.extractVertices(from: solution)
+        let normals = try await meshExtractor.calculateNormals(for: vertices)
+        let indices = try await meshExtractor.generateIndices()
+        
+        let confidence = vertices.map { vertex -> Float in
+            let solutionValue = interpolateSolution(solution, at: vertex)
+            return smoothstep(0.1, 0.9, abs(solutionValue))
+        }
+        
+        return MeshData(vertices: vertices,
+                       indices: indices,
+                       normals: normals,
+                       confidence: confidence)
+    }
+    
+    func smoothstep(_ edge0: Float, _ edge1: Float, _ x: Float) -> Float {
+        let t = clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0)
+        return t * t * (3.0 - 2.0 * t)
+    }
+    
+    func clamp(_ x: Float, _ lowerlimit: Float, _ upperlimit: Float) -> Float {
+        return min(max(x, lowerlimit), upperlimit)
+    }
+    
+    func interpolateSolution(_ solution: [Float], at point: SIMD3<Float>) -> Float {
+        let gridSize = SIMD3<Int>(64, 64, 64)
+        let cellSize = 1.0 / Float(gridSize.x)
+        let gridPoint = point / cellSize
+        let indices = SIMD3<Int>(Int(gridPoint.x), Int(gridPoint.y), Int(gridPoint.z))
+        let weights = gridPoint - SIMD3<Float>(Float(indices.x), Float(indices.y), Float(indices.z))
+        
+        var interpolatedValue: Float = 0
+        for i in 0...1 {
+            for j in 0...1 {
+                for k in 0...1 {
+                    let idx = (indices.x + i) * gridSize.y * gridSize.z +
+                             (indices.y + j) * gridSize.z +
+                             (indices.z + k)
+                    let weight = (i == 0 ? 1 - weights.x : weights.x) *
+                                (j == 0 ? 1 - weights.y : weights.y) *
+                                (k == 0 ? 1 - weights.z : weights.z)
+                    interpolatedValue += solution[idx] * weight
+                }
+            }
+        }
+        
+        return interpolatedValue
     }
 }

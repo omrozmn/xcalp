@@ -1,9 +1,10 @@
-import ARKit
-import Vision
 import Foundation
+import Vision
+import ARKit
 
 class ScanningController: NSObject, ObservableObject, ARSessionDelegate {
-    private let dataFusionProcessor = try! DataFusionProcessor()
+    // Dependencies
+    private let dataFusionProcessor: DataFusionProcessor
     private let qualityAssurance = QualityAssurance()
     private var currentMode: ScanningModes = .lidarOnly
     private var fallbackAttempts = 0
@@ -21,10 +22,16 @@ class ScanningController: NSObject, ObservableObject, ARSessionDelegate {
     private let stateManager = ScanningStateManager()
     private var pointCloudCache: LRUCache<UUID, PointCloud>?
 
+    // MARK: - Initialization
+
     override init() {
+        do {
+            self.dataFusionProcessor = try DataFusionProcessor()
+        } catch {
+            fatalError("Failed to initialize DataFusionProcessor: \(error)")
+        }
         super.init()
         setupPointCloudCache()
-        setupQualityMonitoring()
         setupMemoryHandling()
         setupMetricsLogging()
     }
@@ -92,7 +99,7 @@ class ScanningController: NSObject, ObservableObject, ARSessionDelegate {
 
     private func reportMemoryUsage() -> UInt64 {
         var info = mach_task_basic_info()
-        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size)/4
+        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / 4)
         
         let kerr: kern_return_t = withUnsafeMutablePointer(to: &info) {
             $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
@@ -850,23 +857,48 @@ class ScanningController: NSObject, ObservableObject, ARSessionDelegate {
     // Performance optimized point cloud processing
     private func processPointCloud(_ points: [SIMD3<Float>], mode: ScanningModes) {
         let cloudID = UUID()
-        
-        // Process in batches for better memory management
         let batchSize = 1000
-        var processedPoints: [SIMD3<Float>] = []
         
-        for batch in stride(from: 0, to: points.count, by: batchSize) {
-            let end = min(batch + batchSize, points.count)
-            let batchPoints = Array(points[batch..<end])
-            
-            autoreleasepool {
-                let processed = processPointBatch(batchPoints, mode: mode)
-                processedPoints.append(contentsOf: processed)
+        let processingGroup = DispatchGroup()
+        let processingQueue = DispatchQueue(
+            label: "com.xcalp.pointcloud.processing",
+            attributes: .concurrent
+        )
+        
+        var processedBatches: [[SIMD3<Float>]] = Array(
+            repeating: [],
+            count: (points.count + batchSize - 1) / batchSize
+        )
+        
+        // Process in batches
+        for (index, batch) in points.chunked(into: batchSize).enumerated() {
+            processingQueue.async(group: processingGroup) {
+                autoreleasepool {
+                    let processed = self.processPointBatch(batch, mode: mode)
+                    processedBatches[index] = processed
+                }
             }
         }
         
-        // Cache processed point cloud
-        pointCloudCache?.set(PointCloud(points: processedPoints), for: cloudID)
+        // Wait for all batches to complete
+        processingGroup.wait()
+        
+        // Merge results
+        let processedPoints = processedBatches.flatMap { $0 }
+        
+        // Cache with TTL
+        pointCloudCache?.set(
+            PointCloud(points: processedPoints), 
+            for: cloudID, 
+            ttl: .minutes(5)
+        )
+    }
+
+    private func processPointBatch(_ points: [SIMD3<Float>], mode: ScanningMode) -> [SIMD3<Float>] {
+        // Release memory for previous batch
+        autoreleasepool {
+            applyQualityFilters(to: points, mode: mode)
+        }
     }
 }
 
@@ -1036,4 +1068,83 @@ private struct FusionMetrics {
 struct FusionConfiguration {
     let lidarWeight: Float
     let photoWeight: Float
+}
+
+private func determineOptimalScanningMode() -> ScanningMode {
+    let hasLiDAR = ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh)
+    let hasTrueDepth = AVCaptureDevice.default(.builtInTrueDepthCamera, for: .video, position: .front) != nil
+    
+    // Check environmental conditions
+    let lightingQuality = assessLightingConditions()
+    let motionStability = assessMotionStability()
+    
+    if hasLiDAR && lightingQuality > 0.7 && motionStability > 0.8 {
+        return .lidar
+    } else if hasTrueDepth && lightingQuality > 0.6 {
+        return .hybrid
+    } else {
+        return .photogrammetry
+    }
+}
+
+private func assessLightingConditions() -> Float {
+    guard let frame = currentFrame,
+          let lightEstimate = frame.lightEstimate else {
+        return 0.0
+    }
+    return Float(lightEstimate.ambientIntensity) / 1000.0 // Normalize to 0-1
+}
+
+private func assessMotionStability() -> Float {
+    guard let frame = currentFrame else {
+        return 0.0
+    }
+    return frame.camera.trackingState == .normal ? 1.0 : 0.0
+}
+
+private func handleScanningFailure(_ error: Error) async {
+    if fallbackAttempts < maxFallbackAttempts {
+        fallbackAttempts += 1
+        
+        // Exponential backoff with jitter
+        let baseDelay = pow(2.0, Double(fallbackAttempts))
+        let jitter = Double.random(in: 0...0.5)
+        let backoffDelay = baseDelay + jitter
+        
+        logger.info("Attempt \(fallbackAttempts): Retrying with \(backoffDelay)s delay")
+        
+        // Try alternative scanning strategies
+        try? await Task.sleep(nanoseconds: UInt64(backoffDelay * 1_000_000_000))
+        
+        switch error {
+        case ScanningError.insufficientLighting:
+            await suggestLightingImprovements()
+        case ScanningError.excessiveMotion:
+            await enableMotionStabilization()
+        case ScanningError.qualityBelowThreshold:
+            await adjustQualitySettings()
+        default:
+            fallbackToNextMode()
+        }
+        
+        await startScanningMode()
+    } else {
+        logger.error("Max retry attempts reached")
+        throw ScanningError.processingFailed
+    }
+}
+
+private func adjustQualitySettings() async {
+    // Temporarily lower quality thresholds
+    qualityThresholds.pointDensity *= 0.9
+    qualityThresholds.surfaceCompleteness *= 0.95
+    
+    // Re-evaluate after 5 seconds
+    try? await Task.sleep(nanoseconds: 5_000_000_000)
+    resetQualityThresholds()
+}
+
+private func enableMotionStabilization() async {
+    configuration.isTemporalStabilizationEnabled = true
+    configuration.frameSemantics.insert(.smoothedSceneDepth)
 }

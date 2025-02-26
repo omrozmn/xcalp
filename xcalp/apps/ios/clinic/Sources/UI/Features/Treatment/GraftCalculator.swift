@@ -1,4 +1,5 @@
 import Foundation
+import Vision
 import simd
 
 public final class GraftCalculator {
@@ -152,20 +153,53 @@ public enum GraftError: Error {
     case invalidDensity(String)
     case insufficientDonorArea(String)
     case optimizationFailure(String)
+    case densityAnalysisFailed(String)
 }
 
 // MARK: - Supporting Classes
 
 public final class DensityAnalyzer {
-    public init() {}
+    private let visionModel: VNHairAnalysisRequest
+    
+    public init() {
+        self.visionModel = VNHairAnalysisRequest()
+    }
     
     public func analyzeExistingDensity(
         area: Float,
         preferences: GraftPreferences
     ) async throws -> Float {
-        // TODO: Implement density analysis
-        // This would use computer vision to detect and count existing hair
-        fatalError("Not implemented")
+        guard area > 0 else {
+            throw GraftError.invalidArea("Area must be greater than 0")
+        }
+        
+        // Create vision request to analyze hair density
+        let request = VNDetectHairDensityRequest { (request, error) in
+            if let error = error {
+                throw GraftError.densityAnalysisFailed(error.localizedDescription)
+            }
+            
+            guard let results = request.results as? [VNHairDensityObservation] else {
+                throw GraftError.densityAnalysisFailed("Invalid results format")
+            }
+            
+            // Calculate average density from observations
+            let totalDensity = results.reduce(0.0) { $0 + $1.density }
+            return Float(totalDensity / Double(results.count))
+        }
+        
+        return try await withCheckedThrowingContinuation { continuation in
+            do {
+                try request.perform([request])
+                if let density = request.results?.first?.density {
+                    continuation.resume(returning: Float(density))
+                } else {
+                    continuation.resume(throwing: GraftError.densityAnalysisFailed("No density data available"))
+                }
+            } catch {
+                continuation.resume(throwing: GraftError.densityAnalysisFailed(error.localizedDescription))
+            }
+        }
     }
 }
 
@@ -178,8 +212,59 @@ public final class ZoneOptimizer {
         measurements: Measurements,
         preferences: GraftPreferences
     ) async throws -> [GraftZone] {
-        // TODO: Implement zone optimization
-        // This would use algorithms to optimally distribute grafts across zones
-        fatalError("Not implemented")
+        var zones: [GraftZone] = []
+        var remainingGrafts = totalGrafts
+        
+        // Sort zones by priority
+        let sortedPreferences = preferences.zonePreferences.sorted { $0.priority.rawValue < $1.priority.rawValue }
+        
+        for zonePreference in sortedPreferences {
+            let zoneArea = try calculateZoneArea(boundaries: zonePreference.boundaries)
+            
+            // Calculate zone-specific density
+            let targetDensity = zonePreference.targetDensity ?? preferences.targetDensity
+            let zoneGrafts = min(
+                Int(zoneArea * targetDensity),
+                remainingGrafts
+            )
+            
+            // Calculate graft type distribution for this zone
+            let zoneDistribution = zonePreference.typeDistribution ?? preferences.typeDistribution
+            
+            let zone = GraftZone(
+                id: UUID(),
+                name: zonePreference.name,
+                area: zoneArea,
+                density: targetDensity,
+                distribution: zoneDistribution,
+                priority: zonePreference.priority,
+                boundaries: zonePreference.boundaries
+            )
+            
+            zones.append(zone)
+            remainingGrafts -= zoneGrafts
+            
+            if remainingGrafts <= 0 {
+                break
+            }
+        }
+        
+        return zones
+    }
+    
+    private func calculateZoneArea(boundaries: [simd_float3]) throws -> Float {
+        guard boundaries.count >= 3 else {
+            throw GraftError.invalidArea("Zone must have at least 3 boundary points")
+        }
+        
+        // Calculate area using shoelace formula
+        var area: Float = 0
+        for i in 0..<boundaries.count {
+            let j = (i + 1) % boundaries.count
+            area += boundaries[i].x * boundaries[j].z
+            area -= boundaries[j].x * boundaries[i].z
+        }
+        
+        return abs(area) / 2.0
     }
 }

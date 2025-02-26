@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="21754" systemVersion="22E261" minimumToolsVersion="Automatic" sourceLanguage="Swift" usedWithCloudKit="YES" userDefinedModelVersionIdentifier="">
+    <entity name="OptimalConfiguration" representedClassName="OptimalConfiguration" syncable="YES" codeGenerationType="class">
+        <attribute name="configuration" optional="YES" attributeType="Binary"/>
+        <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="lightingLevel" attributeType="Float" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="mode" attributeType="String"/>
+        <attribute name="motionStability" attributeType="Float" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="surfaceComplexity" attributeType="Float" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="timestamp" attributeType="Date" usesScalarValueType="NO"/>
+    </entity>
+    <entity name="OptimizationRecord" representedClassName="OptimizationRecord" syncable="YES" codeGenerationType="class">
+        <attribute name="devicePerformance" attributeType="Float" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="fromMode" attributeType="String"/>
+        <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="lightingLevel" attributeType="Float" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="motionStability" attributeType="Float" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="reason" attributeType="String"/>
+        <attribute name="success" attributeType="Boolean" usesScalarValueType="YES"/>
+        <attribute name="surfaceComplexity" attributeType="Float" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="timestamp" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="toMode" attributeType="String"/>
+    </entity>
+    <entity name="QualityRecord" representedClassName="QualityRecord" syncable="YES" codeGenerationType="class">
+        <attribute name="featurePreservation" attributeType="Float" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="noiseLevel" attributeType="Float" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="pointDensity" attributeType="Float" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="surfaceCompleteness" attributeType="Float" defaultValueString="0.0" usesScalarValueType="YES"/>
+        <attribute name="timestamp" attributeType="Date" usesScalarValueType="NO"/>
+        <relationship name="session" optional="YES" maxCount="1" deletionRule="Nullify" destinationEntity="ScanningSession" inverseName="records" inverseEntity="ScanningSession"/>
+    </entity>
+    <entity name="ScanningSession" representedClassName="ScanningSession" syncable="YES" codeGenerationType="class">
+        <attribute name="configuration" optional="YES" attributeType="Binary"/>
+        <attribute name="id" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="mode" attributeType="String"/>
+        <attribute name="timestamp" attributeType="Date" usesScalarValueType="NO"/>
+        <relationship name="records" optional="YES" toMany="YES" deletionRule="Cascade" destinationEntity="QualityRecord" inverseName="session" inverseEntity="QualityRecord"/>
+    </entity>
+</model>

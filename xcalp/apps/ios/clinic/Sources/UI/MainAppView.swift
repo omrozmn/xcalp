@@ -15,6 +15,17 @@ public struct MainAppView: View {
                     get: \.selectedTab,
                     send: MainAppFeature.Action.tabSelected
                 )) {
+                    DashboardView(
+                        store: store.scope(
+                            state: \.dashboard,
+                            action: MainAppFeature.Action.dashboard
+                        )
+                    )
+                    .tabItem {
+                        Label("Dashboard", systemImage: "house.fill")
+                    }
+                    .tag(MainAppFeature.State.Tab.dashboard)
+                    
                     ScanningView(
                         store: store.scope(
                             state: \.scanning,
