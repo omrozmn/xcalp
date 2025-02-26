@@ -1,0 +1,29 @@
+// CoreML model for hair density analysis
+version: 1
+spec: "3"
+
+description: "Hair density analysis model for transplant planning"
+author: "Xcalp"
+license: "Private"
+
+input: "meshData"
+  type: multiArray
+  shape: [100, 100, 3]
+  name: "Input mesh data"
+
+output: "densityMap"
+  type: multiArray
+  shape: [100, 100]
+  name: "Density estimation per region"
+
+output: "confidence"
+  type: double
+  name: "Confidence score"
+
+parameters:
+  minSampleSize: 500
+  confidenceThreshold: 0.85
+  densityScaleFactor: 1.0
+
+preprocessingApplied: "normalized"
+postprocessingApplied: "densityScaling"

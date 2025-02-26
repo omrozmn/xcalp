@@ -259,6 +259,38 @@ public struct SessionAnalysis {
     var maxFrameRate: Double = 0
     var averagePerformance: ResourceMetrics?
     var duration: TimeInterval = 0
+    
+    var meetsPerformanceTargets: Bool {
+        guard let performance = averagePerformance else { return false }
+        
+        return averageFrameRate >= PerformanceThresholds.minimumFrameRate &&
+               performance.cpuUsage <= PerformanceThresholds.maximumCPUUsage &&
+               performance.gpuUtilization <= PerformanceThresholds.maximumGPUUsage &&
+               averageQuality >= PerformanceThresholds.ScanQuality.minimumFeatureConfidence
+    }
+    
+    func generatePerformanceReport() -> String {
+        var summary = """
+        Session Summary:
+        Success: \(success)
+        Average Quality: \(String(format: "%.2f", averageQuality))
+        Frame Rate: \(String(format: "%.1f", averageFrameRate)) fps
+        CPU Usage: \(String(format: "%.1f%%", averagePerformance?.cpuUsage ?? 0 * 100))
+        Memory Usage: \(ByteCountFormatter.string(fromByteCount: Int64(averagePerformance?.memoryUsage ?? 0), countStyle: .memory))
+        GPU Utilization: \(String(format: "%.1f%%", averagePerformance?.gpuUtilization ?? 0 * 100))
+        """
+        
+        summary.append("Performance Metrics:\n")
+        summary.append("- Frame Rate: \(String(format: "%.1f", averageFrameRate)) fps (Target: \(PerformanceThresholds.targetFrameRate))\n")
+        summary.append("- Quality Score: \(String(format: "%.2f", averageQuality)) (Min: \(PerformanceThresholds.ScanQuality.minimumFeatureConfidence))\n")
+        
+        if let performance = averagePerformance {
+            summary.append("- CPU Usage: \(String(format: "%.1f%%", performance.cpuUsage * 100))\n")
+            summary.append("- GPU Usage: \(String(format: "%.1f%%", performance.gpuUtilization * 100))\n")
+        }
+        
+        return summary
+    }
 }
 
 public struct PerformanceReport {
@@ -317,5 +349,27 @@ extension ResourceMetrics {
             memoryUsage: memoryUsage / UInt64(count),
             gpuUtilization: gpuUtilization / Double(count)
         )
+    }
+}
+
+struct PerformanceThresholds {
+    static let minimumFrameRate: Double = 30.0
+    static let targetFrameRate: Double = 60.0
+    static let maximumProcessingTime: TimeInterval = 3.0
+    static let maximumMemoryUsage: UInt64 = 300_000_000 // 300MB
+    static let maximumCPUUsage: Float = 0.8 // 80%
+    static let maximumGPUUsage: Float = 0.7 // 70%
+    
+    struct ScanQuality {
+        static let minimumPointDensity: Float = 1000 // points per cm²
+        static let minimumFeatureConfidence: Float = 0.85
+        static let maximumNoiseLevel: Float = 0.15
+        static let minimumSurfaceCompleteness: Float = 0.95
+    }
+    
+    struct Analysis {
+        static let maximumAnalysisTime: TimeInterval = 5.0
+        static let minimumConfidenceScore: Double = 0.9
+        static let maximumMLInferenceTime: TimeInterval = 2.0
     }
 }

@@ -10,6 +10,24 @@ public final class LoadingAnimationManager: ObservableObject {
     @Published public var loadingMessage: String?
     @Published public var secondaryMessage: String?
     @Published public var isInterruptible = false
+    @Published public var estimatedTimeRemaining: TimeInterval?
+    @Published public var performanceMetrics: PerformanceMetrics?
+    @Published public var adaptiveAnimation: Bool = true
+    
+    private var progressHistory: [(timestamp: TimeInterval, progress: Double)] = []
+    private var thermalState: ProcessorThermalState = .nominal
+    private let maxHistoryPoints = 50
+    
+    public struct PerformanceMetrics {
+        var processingSpeed: Double  // items/second
+        var memoryUsage: UInt64     // bytes
+        var gpuUtilization: Float   // 0-1
+        var progressRate: Double     // progress/second
+    }
+    
+    public enum ProcessorThermalState {
+        case nominal, fair, serious, critical
+    }
     
     public enum LoadingStyle {
         case `default`
@@ -50,9 +68,20 @@ public final class LoadingAnimationManager: ObservableObject {
         style: LoadingStyle = .default,
         message: String? = nil,
         secondaryMessage: String? = nil,
-        isInterruptible: Bool = false
+        isInterruptible: Bool = false,
+        estimatedDuration: TimeInterval? = nil
     ) {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        progressHistory.removeAll()
+        performanceMetrics = nil
+        estimatedTimeRemaining = estimatedDuration
+        
+        // Record initial progress point
+        progressHistory.append((CACurrentMediaTime(), 0))
+        
+        // Monitor thermal state
+        monitorThermalState()
+        
+        withAnimation(getAdaptiveAnimation()) {
             self.isLoading = true
             self.loadingStyle = style
             self.loadingMessage = message
@@ -61,25 +90,38 @@ public final class LoadingAnimationManager: ObservableObject {
             self.loadingProgress = 0
         }
         
-        // Provide haptic feedback based on style
-        switch style {
-        case .scanning:
-            HapticFeedbackManager.shared.playFeedback(.impact(.light))
-        case .processing:
-            HapticFeedbackManager.shared.playFeedback(.impact(.medium))
-        case .analyzing:
-            HapticFeedbackManager.shared.playPattern(HapticFeedbackManager.analysisStartPattern)
-        default:
-            break
-        }
+        playHapticFeedback(for: style)
     }
     
     public func updateProgress(
         _ progress: Double,
         message: String? = nil,
-        secondaryMessage: String? = nil
+        secondaryMessage: String? = nil,
+        currentMemoryUsage: UInt64? = nil,
+        gpuUtilization: Float? = nil
     ) {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+        let currentTime = CACurrentMediaTime()
+        progressHistory.append((currentTime, progress))
+        
+        // Keep only recent history
+        if progressHistory.count > maxHistoryPoints {
+            progressHistory.removeFirst()
+        }
+        
+        // Calculate performance metrics
+        updatePerformanceMetrics(
+            currentTime: currentTime,
+            memoryUsage: currentMemoryUsage,
+            gpuUtilization: gpuUtilization
+        )
+        
+        // Update estimated time remaining
+        updateTimeEstimate()
+        
+        // Adapt animation based on performance
+        let animation = getAdaptiveAnimation()
+        
+        withAnimation(animation) {
             self.loadingProgress = progress
             if let message = message {
                 self.loadingMessage = message
@@ -89,10 +131,8 @@ public final class LoadingAnimationManager: ObservableObject {
             }
         }
         
-        // Provide progress-based haptic feedback
-        if progress.truncatingRemainder(dividingBy: 0.25) < 0.01 {
-            HapticFeedbackManager.shared.playFeedback(.impact(.light))
-        }
+        // Provide adaptive haptic feedback
+        provideProgressHapticFeedback(progress)
     }
     
     public func stopLoading(
@@ -136,6 +176,160 @@ public final class LoadingAnimationManager: ObservableObject {
         }
         
         HapticFeedbackManager.shared.playFeedback(.impact(.medium))
+    }
+    
+    private func updatePerformanceMetrics(
+        currentTime: TimeInterval,
+        memoryUsage: UInt64?,
+        gpuUtilization: Float?
+    ) {
+        guard progressHistory.count >= 2 else { return }
+        
+        let recent = progressHistory.suffix(10)
+        let timeSpan = recent.last!.timestamp - recent.first!.timestamp
+        let progressSpan = recent.last!.progress - recent.first!.progress
+        
+        let progressRate = timeSpan > 0 ? progressSpan / timeSpan : 0
+        
+        performanceMetrics = PerformanceMetrics(
+            processingSpeed: progressRate * 100, // Convert to percentage/second
+            memoryUsage: memoryUsage ?? 0,
+            gpuUtilization: gpuUtilization ?? 0,
+            progressRate: progressRate
+        )
+    }
+    
+    private func updateTimeEstimate() {
+        guard progressHistory.count >= 2,
+              let currentProgress = progressHistory.last?.progress,
+              currentProgress > 0 else {
+            return
+        }
+        
+        // Calculate average progress rate from recent history
+        let recent = progressHistory.suffix(min(10, progressHistory.count))
+        let timeSpan = recent.last!.timestamp - recent.first!.timestamp
+        let progressSpan = recent.last!.progress - recent.first!.progress
+        
+        let progressRate = progressSpan / timeSpan
+        
+        if progressRate > 0 {
+            let remainingProgress = 1.0 - currentProgress
+            estimatedTimeRemaining = remainingProgress / progressRate
+        }
+    }
+    
+    private func getAdaptiveAnimation() -> Animation {
+        guard adaptiveAnimation else {
+            return loadingStyle.animation
+        }
+        
+        // Adapt animation based on thermal state and performance
+        let duration = getAdaptiveDuration()
+        let dampingFraction = getAdaptiveDampingFraction()
+        
+        switch loadingStyle {
+        case .progress:
+            return .spring(response: duration, dampingFraction: dampingFraction)
+        case .processing:
+            return .easeInOut(duration: duration).repeatForever(autoreverses: false)
+        default:
+            return loadingStyle.animation
+        }
+    }
+    
+    private func getAdaptiveDuration() -> Double {
+        switch thermalState {
+        case .critical:
+            return 1.2 // Slower animations
+        case .serious:
+            return 0.8
+        case .fair:
+            return 0.6
+        case .nominal:
+            return 0.4 // Faster animations
+        }
+    }
+    
+    private func getAdaptiveDampingFraction() -> Double {
+        switch thermalState {
+        case .critical:
+            return 0.9 // More damping
+        case .serious:
+            return 0.8
+        case .fair:
+            return 0.7
+        case .nominal:
+            return 0.6 // Less damping
+        }
+    }
+    
+    private func monitorThermalState() {
+        #if os(iOS)
+        ProcessInfo.processInfo.thermalStateDidChangeNotification
+            .publisher
+            .sink { [weak self] _ in
+                self?.updateThermalState()
+            }
+        #endif
+    }
+    
+    private func updateThermalState() {
+        #if os(iOS)
+        switch ProcessInfo.processInfo.thermalState {
+        case .critical:
+            thermalState = .critical
+        case .serious:
+            thermalState = .serious
+        case .fair:
+            thermalState = .fair
+        case .nominal:
+            thermalState = .nominal
+        @unknown default:
+            thermalState = .nominal
+        }
+        #endif
+    }
+    
+    private func provideProgressHapticFeedback(_ progress: Double) {
+        // Provide haptic feedback at key progress points
+        let feedbackThresholds: Set<Double> = [0.25, 0.5, 0.75, 1.0]
+        
+        // Find the nearest threshold that we just passed
+        for threshold in feedbackThresholds {
+            let previous = progressHistory.dropLast().last?.progress ?? 0
+            if previous < threshold && progress >= threshold {
+                // Adapt feedback intensity based on thermal state
+                let intensity: UIImpactFeedbackGenerator.FeedbackStyle
+                switch thermalState {
+                case .critical:
+                    intensity = .light
+                case .serious, .fair:
+                    intensity = .medium
+                case .nominal:
+                    intensity = .rigid
+                }
+                
+                HapticFeedbackManager.shared.playFeedback(.impact(intensity))
+                break
+            }
+        }
+    }
+    
+    private func playHapticFeedback(for style: LoadingStyle) {
+        // Skip haptic feedback in critical thermal state
+        guard thermalState != .critical else { return }
+        
+        switch style {
+        case .scanning:
+            HapticFeedbackManager.shared.playFeedback(.impact(.light))
+        case .processing:
+            HapticFeedbackManager.shared.playFeedback(.impact(.medium))
+        case .analyzing:
+            HapticFeedbackManager.shared.playPattern(HapticFeedbackManager.analysisStartPattern)
+        default:
+            break
+        }
     }
 }
 
@@ -209,6 +403,8 @@ public struct LoadingOverlay: View {
                             .tint(.secondary)
                             .padding(.top)
                         }
+                        
+                        metricsView
                     }
                     .padding()
                     .background(
@@ -222,6 +418,42 @@ public struct LoadingOverlay: View {
             }
         }
         .animation(manager.loadingStyle.animation, value: manager.isLoading)
+    }
+    
+    private var metricsView: some View {
+        Group {
+            if let metrics = LoadingAnimationManager.shared.performanceMetrics {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Processing Speed: \(String(format: "%.1f", metrics.processingSpeed))/s")
+                        .font(.caption2)
+                    Text("Memory Usage: \(ByteCountFormatter.string(fromByteCount: Int64(metrics.memoryUsage), countStyle: .memory))")
+                        .font(.caption2)
+                    if metrics.gpuUtilization > 0 {
+                        Text("GPU Usage: \(String(format: "%.0f%%", metrics.gpuUtilization * 100))")
+                            .font(.caption2)
+                    }
+                }
+                .foregroundColor(.secondary)
+                .padding(.top, 8)
+            }
+            
+            if let timeRemaining = LoadingAnimationManager.shared.estimatedTimeRemaining {
+                Text("Estimated time remaining: \(timeString(from: timeRemaining))")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.top, 4)
+            }
+        }
+    }
+    
+    private func timeString(from timeInterval: TimeInterval) -> String {
+        if timeInterval < 60 {
+            return String(format: "%.0f seconds", timeInterval)
+        } else if timeInterval < 3600 {
+            return String(format: "%.1f minutes", timeInterval / 60)
+        } else {
+            return String(format: "%.1f hours", timeInterval / 3600)
+        }
     }
 }
 

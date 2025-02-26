@@ -3,6 +3,7 @@ import ARKit
 import Combine
 import CoreImage
 import os.log
+import CoreMotion
 
 enum ScanningMode {
     case lidar
@@ -16,22 +17,31 @@ enum ScanningError: Error {
     case insufficientLighting
     case excessiveMotion
     case processingFailed
+    case sessionConfigurationFailed
+    case noDepthDataAvailable
+    case noSegmentationDataAvailable
 }
 
 final class ScanningController: ObservableObject {
     private let logger = Logger(subsystem: "com.xcalp.clinic", category: "ScanningController")
-    private var qualityMonitor = ScanQualityMonitor()
+    private let motionManager = CMMotionManager()
+    private let qualityMonitor = ScanQualityMonitor()
+    private let frameBuffer = FrameBuffer(capacity: 30)
     private var cancellables = Set<AnyCancellable>()
     
     @Published private(set) var currentMode: ScanningMode = .lidar
     @Published private(set) var qualityScore: Double = 0.0
     @Published private(set) var isProcessing = false
+    @Published private(set) var recoveryStatus: RecoveryStatus = .none
     
     private var fallbackAttempts = 0
     private let maxFallbackAttempts = 3
+    private var lastQualityCheck = Date()
+    private let qualityCheckInterval: TimeInterval = 0.5
     
     init() {
         setupQualityMonitoring()
+        setupMotionMonitoring()
     }
     
     func startScanning() async throws {
@@ -42,6 +52,12 @@ final class ScanningController: ObservableObject {
         fallbackAttempts = 0
         currentMode = determineOptimalScanningMode()
         await startScanningMode()
+    }
+    
+    private func setupMotionMonitoring() {
+        guard motionManager.isDeviceMotionAvailable else { return }
+        motionManager.deviceMotionUpdateInterval = 0.1
+        motionManager.startDeviceMotionUpdates()
     }
     
     private func startScanningMode() async {
@@ -62,26 +78,153 @@ final class ScanningController: ObservableObject {
         }
     }
     
+    private func startLiDARScanning() async throws {
+        let configuration = ARWorldTrackingConfiguration()
+        configuration.frameSemantics = [.sceneDepth, .smoothedSceneDepth]
+        configuration.sceneReconstruction = .mesh
+        
+        try await configureScanningSession(configuration)
+    }
+    
+    private func startPhotogrammetryScanning() async throws {
+        let configuration = ARWorldTrackingConfiguration()
+        configuration.frameSemantics = [.personSegmentationWithDepth]
+        
+        try await configureScanningSession(configuration)
+    }
+    
+    private func startHybridScanning() async throws {
+        let configuration = ARWorldTrackingConfiguration()
+        configuration.frameSemantics = [.sceneDepth, .smoothedSceneDepth, .personSegmentationWithDepth]
+        configuration.sceneReconstruction = .mesh
+        
+        try await configureScanningSession(configuration)
+    }
+    
+    private func configureScanningSession(_ configuration: ARConfiguration) async throws {
+        // Configure frame buffering
+        frameBuffer.clear()
+        
+        // Start session with error handling
+        do {
+            try await withCheckedThrowingContinuation { continuation in
+                ARSession().run(configuration, options: [.resetTracking, .removeExistingAnchors])
+                continuation.resume()
+            }
+        } catch {
+            throw ScanningError.sessionConfigurationFailed
+        }
+    }
+    
     private func handleScanningFailure(_ error: Error) async {
         if fallbackAttempts < maxFallbackAttempts {
             fallbackAttempts += 1
             let backoffDelay = pow(2.0, Double(fallbackAttempts))
             
+            recoveryStatus = .attempting(attempt: fallbackAttempts, max: maxFallbackAttempts)
+            
             try? await Task.sleep(nanoseconds: UInt64(backoffDelay * 1_000_000_000))
             
+            // Try fallback modes
             switch currentMode {
             case .lidar:
-                currentMode = .photogrammetry
-            case .photogrammetry:
                 currentMode = .hybrid
             case .hybrid:
-                throw ScanningError.processingFailed
+                currentMode = .photogrammetry
+            case .photogrammetry:
+                recoveryStatus = .failed(error: error)
+                return
             }
             
             await startScanningMode()
         } else {
-            throw ScanningError.processingFailed
+            recoveryStatus = .failed(error: error)
         }
+    }
+    
+    func processFrame(_ frame: ARFrame) async throws {
+        // Buffer frame for potential recovery
+        frameBuffer.add(frame)
+        
+        // Process frame based on current mode with sensor fusion
+        switch currentMode {
+        case .lidar:
+            try await processLiDARFrame(frame)
+        case .photogrammetry:
+            try await processPhotogrammetryFrame(frame)
+        case .hybrid:
+            try await processHybridFrame(frame)
+        }
+        
+        // Check quality and trigger recovery if needed
+        await checkQualityAndRecover(frame)
+    }
+    
+    private func processLiDARFrame(_ frame: ARFrame) async throws {
+        guard let depthData = frame.sceneDepth?.depthMap else {
+            throw ScanningError.noDepthDataAvailable
+        }
+        
+        // Enhance depth data with IMU fusion
+        if let motion = motionManager.deviceMotion {
+            try await enhanceDepthWithIMU(depthData, motion: motion)
+        }
+    }
+    
+    private func processPhotogrammetryFrame(_ frame: ARFrame) async throws {
+        guard let segmentationBuffer = frame.segmentationBuffer else {
+            throw ScanningError.noSegmentationDataAvailable
+        }
+        
+        // Process photogrammetry data
+        try await processPhotogrammetryData(frame, segmentation: segmentationBuffer)
+    }
+    
+    private func processHybridFrame(_ frame: ARFrame) async throws {
+        // Process both LiDAR and photogrammetry data
+        async let lidarResult = processLiDARFrame(frame)
+        async let photoResult = processPhotogrammetryFrame(frame)
+        
+        // Wait for both results and fuse data
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask { try await lidarResult }
+            group.addTask { try await photoResult }
+            try await group.waitForAll()
+        }
+        
+        try await fuseDataSources()
+    }
+    
+    private func checkQualityAndRecover(_ frame: ARFrame) async {
+        guard Date().timeIntervalSince(lastQualityCheck) >= qualityCheckInterval else { return }
+        
+        lastQualityCheck = Date()
+        let quality = try? await qualityMonitor.assessQuality(frame)
+        
+        if let quality = quality, quality < QualityThresholds.minQuality {
+            // Attempt quick recovery with recent frames
+            if await attemptQuickRecovery() {
+                recoveryStatus = .recovered
+            } else {
+                // If quick recovery fails, trigger mode fallback
+                await handleScanningFailure(ScanningError.qualityBelowThreshold)
+            }
+        }
+    }
+    
+    private func attemptQuickRecovery() async -> Bool {
+        // Try to recover using buffered frames
+        let recentFrames = frameBuffer.getRecentFrames(count: 5)
+        
+        for frame in recentFrames.reversed() {
+            if try? await validateFrame(frame) {
+                // Use this frame as recovery point
+                try? await reprocessFromFrame(frame)
+                return true
+            }
+        }
+        
+        return false
     }
     
     private func setupQualityMonitoring() {
@@ -259,7 +402,7 @@ final class ScanningController: ObservableObject {
         defer { CVPixelBufferUnlockBaseAddress(depthMap, .readOnly) }
         
         guard let baseAddress = CVPixelBufferGetBaseAddress(depthMap) else {
-            throw ScanningError.invalidFrameData
+            throw ScanningError.processingFailed
         }
         
         let width = CVPixelBufferGetWidth(depthMap)
@@ -633,7 +776,7 @@ final class ScanningController: ObservableObject {
         // Get depth and confidence data
         guard let depthMap = frame.sceneDepth?.depthMap,
               let confidenceMap = frame.sceneDepth?.confidenceMap else {
-            throw ScanningError.invalidFrameData
+            throw ScanningError.processingFailed
         }
         
         // Calculate frame quality metrics
@@ -865,4 +1008,42 @@ private class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate {
         
         completion(.success(imageData))
     }
+}
+
+enum RecoveryStatus {
+    case none
+    case attempting(attempt: Int, max: Int)
+    case recovered
+    case failed(error: Error)
+}
+
+class FrameBuffer {
+    private var frames: [ARFrame] = []
+    private let capacity: Int
+    
+    init(capacity: Int) {
+        self.capacity = capacity
+    }
+    
+    func add(_ frame: ARFrame) {
+        frames.append(frame)
+        if frames.count > capacity {
+            frames.removeFirst()
+        }
+    }
+    
+    func getRecentFrames(count: Int) -> [ARFrame] {
+        let start = max(0, frames.count - count)
+        return Array(frames[start...])
+    }
+    
+    func clear() {
+        frames.removeAll()
+    }
+}
+
+struct QualityThresholds {
+    static let minQuality: Float = 0.7
+    static let minPointDensity: Float = 100.0
+    static let minFeatureCount: Int = 100
 }

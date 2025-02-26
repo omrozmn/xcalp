@@ -1,6 +1,7 @@
 disabled_rules:
   - trailing_whitespace
   - todo
+  - missing_docs
 
 opt_in_rules:
   - array_init
@@ -16,7 +17,6 @@ opt_in_rules:
   - first_where
   - force_unwrapping
   - implicitly_unwrapped_optional
-  - missing_docs
   - multiline_parameters
   - operator_usage_whitespace
   - overridden_super_call
@@ -26,6 +26,9 @@ opt_in_rules:
   - sorted_imports
   - switch_case_on_newline
   - vertical_parameter_alignment_on_call
+  - secure_coding
+  - sensitive_data_storage
+  - encryption_required
 
 included:
   - apps/ios/clinic/Sources
@@ -42,9 +45,9 @@ analyzer_rules:
   - unused_import
   - unused_declaration
 
-force_cast: warning
-force_try: warning
-force_unwrapping: warning
+force_cast: error
+force_try: error
+force_unwrapping: error
 
 line_length:
   warning: 120

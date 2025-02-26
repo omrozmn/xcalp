@@ -29,21 +29,36 @@ packages:
   TCA:
     url: https://github.com/pointfreeco/swift-composable-architecture
     exactVersion: 1.17.1
+    products:
+      - ComposableArchitecture
+      - ComposableArchitectureMacros
   CasePaths:
     url: https://github.com/pointfreeco/swift-case-paths
     exactVersion: 1.6.1
+    products:
+      - CasePaths
+      - CasePathsMacros
   Dependencies:
     url: https://github.com/pointfreeco/swift-dependencies
     exactVersion: 1.7.0
+    products:
+      - Dependencies
+      - DependenciesMacros
   Perception:
     url: https://github.com/pointfreeco/swift-perception
     exactVersion: 1.5.0
+    products:
+      - Perception
+      - PerceptionMacros
   KeychainAccess:
     url: https://github.com/kishikawakatsumi/KeychainAccess
     exactVersion: 4.2.2
   Firebase:
     url: https://github.com/firebase/firebase-ios-sdk
     exactVersion: 10.29.0
+    products:
+      - FirebaseAnalytics
+      - FirebaseAuth
 
 targets:
   XcalpClinic:
@@ -52,6 +67,8 @@ targets:
     deploymentTarget: 17.0
     sources:
       - path: Sources/XcalpClinic
+        excludes:
+          - "SupportingFiles/Info.plist"
     resources:
       - path: Sources/XcalpClinic/Resources
         includes:
@@ -62,6 +79,7 @@ targets:
           - "**/*.ttf"
           - "**/*.otf"
           - "**/*.metal"
+          - "Info.plist"
     info:
       path: Sources/XcalpClinic/Resources/Info.plist
       properties:
@@ -104,19 +122,14 @@ targets:
           - ENABLE_METAL
           - ENABLE_ARKIT
           - ENABLE_LIDAR
-        OTHER_SWIFT_FLAGS: [
-          "$(inherited)",
-          "-load-plugin-library", "ComposableArchitectureMacros",
-          "-load-plugin-library", "CasePathsMacros",
-          "-load-plugin-library", "DependenciesMacrosPlugin",
-          "-load-plugin-library", "PerceptionMacros",
-          "-enable-bare-slash-regex"
-        ]
+        OTHER_SWIFT_FLAGS:
+          - "$(inherited)"
+          - "-enable-bare-slash-regex"
         ENABLE_USER_SCRIPT_SANDBOXING: NO
-        OTHER_LDFLAGS: $(inherited) -ObjC
         SWIFT_STRICT_CONCURRENCY: complete
         SWIFT_ENABLE_MACRO_SUPPORT: YES
-        OTHER_LDFLAGS: ["-Xlinker", "-interposable"]
+        OTHER_LDFLAGS: ["-Xlinker", "-interposable", "-ObjC"]
+
     dependencies:
       - sdk: ARKit.framework
       - sdk: Metal.framework
@@ -125,40 +138,48 @@ targets:
       - package: TCA
         product: ComposableArchitectureMacros
       - package: CasePaths
+        product: CasePaths
+      - package: CasePaths
         product: CasePathsMacros
       - package: Dependencies
-        product: DependenciesMacrosPlugin
+        product: Dependencies
+      - package: Dependencies
+        product: DependenciesMacros
+      - package: Perception
+        product: Perception
       - package: Perception
         product: PerceptionMacros
       - package: KeychainAccess
-        product: KeychainAccess
       - package: Firebase
         products:
           - FirebaseAnalytics
           - FirebaseAuth
-    macros:
-      - ComposableArchitectureMacros
-      - CasePathsMacros
-      - DependenciesMacrosPlugin
-      - PerceptionMacros
-    testTargets:
-      - XcalpClinicTests
-      - XcalpClinicUITests
+
     preBuildScripts:
       - name: SwiftLint
         script: |
-          if which swiftlint >/dev/null; then
+          if test -f "${SRCROOT}/tools/swiftlint_batch.swift"; then
+            swift "${SRCROOT}/tools/swiftlint_batch.swift"
+          elif which swiftlint >/dev/null; then
             swiftlint
           else
             echo "warning: SwiftLint not installed"
           fi
+        outputFiles:
+          - $(DERIVED_FILE_DIR)/swiftlint.result
+        basedOnDependencyAnalysis: true
       - name: Metal Library Validation
         script: |
+          mkdir -p "${DERIVED_FILE_DIR}"
           xcrun metal -c "${SRCROOT}/Sources/XcalpClinic/Features/Treatment/RegionDetector.metal" -o "${DERIVED_FILE_DIR}/RegionDetector.air"
           xcrun metal -c "${SRCROOT}/Sources/XcalpClinic/Features/Processing/MeshShaders.metal" -o "${DERIVED_FILE_DIR}/MeshShaders.air"
-          xcrun metallib "${DERIVED_FILE_DIR}/RegionDetector.air" "${DERIVED_FILE_DIR}/MeshShaders.air" -o "${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/default.metallib"
+          xcrun metallib "${DERIVED_FILE_DIR}/RegionDetector.air" "${DERIVED_FILE_DIR}/MeshShaders.air" -o "${DERIVED_FILE_DIR}/default.metallib"
+          cp -f "${DERIVED_FILE_DIR}/default.metallib" "${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/"
         outputFiles:
-          - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/default.metallib
+          - $(DERIVED_FILE_DIR)/RegionDetector.air
+          - $(DERIVED_FILE_DIR)/MeshShaders.air
+          - $(DERIVED_FILE_DIR)/default.metallib
+        basedOnDependencyAnalysis: true
 
   XcalpClinicTests:
     type: bundle.unit-test
@@ -185,3 +206,22 @@ targets:
       base:
         SWIFT_VERSION: 5.9
         ENABLE_TESTING_SEARCH_PATHS: YES
+
+schemes:
+  XcalpClinic:
+    build:
+      targets:
+        XcalpClinic: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - XcalpClinicTests
+        - XcalpClinicUITests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

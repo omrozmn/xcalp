@@ -1,116 +1,126 @@
+import Combine
+import RealityKit
 import SwiftUI
 import ARKit
-import Combine
 
-struct ScanningView: View {
-    @StateObject private var viewModel: ScanningViewModel
-    @Environment(\.dismiss) private var dismiss
+public struct ScanningView: View {
+    @StateObject private var viewModel: ScanningPreviewViewModel
+    @Environment(\.accessibilityEnabled) var accessibilityEnabled
+    @Environment(\.colorSchemeContrast) var colorSchemeContrast
+    @State private var showingSessionManagement = false
+    @State private var showingExportOptions = false
     
-    init(meshProcessor: MeshProcessor) {
-        _viewModel = StateObject(wrappedValue: ScanningViewModel(meshProcessor: meshProcessor))
+    public init(scanningFeature: ScanningFeature) {
+        _viewModel = StateObject(wrappedValue: ScanningPreviewViewModel(scanningFeature: scanningFeature))
     }
     
-    var body: some View {
+    public var body: some View {
         ZStack {
-            ARViewContainer(session: viewModel.session)
-                .edgesIgnoringSafeArea(.all)
-                .overlay(QualityOverlay(quality: viewModel.currentQuality))
-            
-            VStack {
-                Spacer()
-                controlPanel
-            }
-            .padding()
-        }
-        .alert("Scanning Error", isPresented: $viewModel.showError) {
-            Button("OK") { dismiss() }
-        } message: {
-            Text(viewModel.errorMessage ?? "Unknown error occurred")
-        }
-        .onChange(of: viewModel.shouldDismiss) { newValue in
-            if newValue {
-                dismiss()
-            }
-        }
-    }
-    
-    private var controlPanel: some View {
-        VStack(spacing: 20) {
-            scanningModeIndicator
-            
-            HStack(spacing: 30) {
-                Button(action: viewModel.toggleScanning) {
-                    Image(systemName: viewModel.isScanning ? "stop.circle.fill" : "record.circle")
-                        .font(.system(size: 64))
-                        .foregroundColor(viewModel.isScanning ? .red : .blue)
-                }
+            // AR Scene View with particle effects
+            ZStack {
+                ARViewContainer()
                 
-                if viewModel.isScanning {
-                    Button(action: viewModel.finishScanning) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 64))
-                            .foregroundColor(.green)
+                if viewModel.showingGuide {
+                    ScanningParticleSystem(
+                        quality: viewModel.scanningQuality,
+                        coverage: viewModel.coverage,
+                        isScanning: true
+                    )
+                    .opacity(0.5)
+                }
+            }
+            
+            // Main scanning interface with animated transitions
+            AnimatedTransitionView(state: .scanning) {
+                ComprehensiveScanningPreviewView(viewModel: viewModel)
+            }
+            
+            // Floating quality indicators
+            if viewModel.shouldShowMetrics {
+                VStack {
+                    HStack {
+                        FloatingQualityIndicator(
+                            quality: viewModel.scanningQuality,
+                            label: "Quality"
+                        )
+                        
+                        FloatingQualityIndicator(
+                            quality: viewModel.coverage,
+                            label: "Coverage"
+                        )
                     }
+                    .padding(.top, 100)
+                    
+                    Spacer()
+                }
+            }
+            
+            // Coverage visualization
+            if viewModel.shouldShowCoverageMap {
+                VStack {
+                    Spacer()
+                    
+                    AnimatedCoverageView(
+                        coverage: viewModel.coverage,
+                        regions: [] // Will be populated with actual coverage data
+                    )
+                    .frame(height: 150)
+                    .padding()
+                    .background(Color.black.opacity(0.5))
+                    .cornerRadius(12)
+                    .padding()
                 }
             }
         }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(.ultraThinMaterial)
-        )
+        .sheet(isPresented: $showingSessionManagement) {
+            SessionManagementView()
+        }
+        .sheet(isPresented: $showingExportOptions) {
+            // Export options view would be implemented here
+        }
+        .onChange(of: viewModel.scanningQuality) { quality in
+            provideDynamicFeedback(quality: quality)
+        }
+        .onChange(of: viewModel.coverage) { coverage in
+            provideDynamicFeedback(coverage: coverage)
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: { showingSessionManagement.toggle() }) {
+                    Image(systemName: "square.stack.3d.up")
+                }
+            }
+            
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: { showingExportOptions.toggle() }) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .disabled(!viewModel.canCapture)
+            }
+        }
+        .navigationBarTitleDisplayMode(.inline)
     }
     
-    private var scanningModeIndicator: some View {
-        HStack {
-            Image(systemName: viewModel.currentMode.iconName)
-            Text(viewModel.currentMode.description)
-                .font(.headline)
+    private func provideDynamicFeedback(
+        quality: Float? = nil,
+        coverage: Float? = nil
+    ) {
+        if let quality = quality {
+            HapticFeedback.shared.playQualityFeedback(quality)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(
-            Capsule()
-                .fill(viewModel.currentMode.color.opacity(0.2))
-                .overlay(
-                    Capsule()
-                        .strokeBorder(viewModel.currentMode.color, lineWidth: 1)
-                )
-        )
+        
+        if let coverage = coverage {
+            HapticFeedback.shared.playCoverageFeedback(coverage)
+        }
     }
 }
 
-private extension ScanningMode {
-    var iconName: String {
-        switch self {
-        case .lidar:
-            return "lidar.sensor"
-        case .photogrammetry:
-            return "camera.fill"
-        case .hybrid:
-            return "camera.aperture"
-        }
-    }
-    
-    var description: String {
-        switch self {
-        case .lidar:
-            return "LiDAR Scanning"
-        case .photogrammetry:
-            return "Photo Scanning"
-        case .hybrid:
-            return "Hybrid Mode"
-        }
-    }
-    
-    var color: Color {
-        switch self {
-        case .lidar:
-            return .blue
-        case .photogrammetry:
-            return .orange
-        case .hybrid:
-            return .purple
+// MARK: - Preview
+#if DEBUG
+struct ScanningView_Previews: PreviewProvider {
+    static var previews: some View {
+        NavigationView {
+            ScanningView(scanningFeature: ScanningFeature())
         }
     }
 }

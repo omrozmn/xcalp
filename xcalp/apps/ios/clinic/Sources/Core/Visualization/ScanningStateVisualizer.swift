@@ -2,154 +2,177 @@ import ARKit
 import SceneKit
 import SwiftUI
 
-class ScanningStateVisualizer {
-    private let sceneView: ARSCNView
-    private let overlayView: UIView
-    private let statusLabel: UILabel
-    private let qualityIndicator: UIProgressView
-    private var currentState: ScanningState = .initializing
+final class ScanningStateVisualizer {
     private var visualizationNodes: [SCNNode] = []
+    private let sceneView: ARSCNView
+    
+    // Enhanced visual guides
+    private var guideOverlay: GuideOverlayNode?
+    private var qualityIndicators: QualityVisualizationNode?
+    private var coverageMap: CoverageMapNode?
     
     init(sceneView: ARSCNView) {
         self.sceneView = sceneView
-        
-        // Setup overlay view
-        self.overlayView = UIView(frame: .zero)
-        overlayView.backgroundColor = .clear
-        
-        // Setup status label
-        self.statusLabel = UILabel(frame: .zero)
-        statusLabel.textAlignment = .center
-        statusLabel.textColor = .white
-        statusLabel.font = .systemFont(ofSize: 16, weight: .medium)
-        statusLabel.layer.shadowColor = UIColor.black.cgColor
-        statusLabel.layer.shadowOffset = CGSize(width: 0, height: 1)
-        statusLabel.layer.shadowOpacity = 0.5
-        
-        // Setup quality indicator
-        self.qualityIndicator = UIProgressView(progressViewStyle: .bar)
-        qualityIndicator.progressTintColor = .systemGreen
-        qualityIndicator.trackTintColor = .systemGray
-        
-        setupUI()
+        setupVisualization()
     }
     
-    func updateState(_ state: ScanningState, quality: Float) {
-        currentState = state
+    func updateVisualization(for state: ScanningState, quality: QualityAssessment? = nil) {
+        removeExistingVisualizations()
         
-        DispatchQueue.main.async { [weak self] in
-            self?.updateUI(for: state, quality: quality)
-            self?.updateVisualization(for: state)
+        switch state {
+        case .initializing:
+            addInitializationGuide()
+        case .lidarScanning:
+            addLidarVisualization()
+            updateQualityIndicators(quality)
+            updateCoverageMap()
+        case .photogrammetryScanning:
+            addPhotogrammetryVisualization()
+            updateQualityIndicators(quality)
+            updateCoverageMap()
+        case .fusion:
+            addFusionVisualization()
+            updateQualityIndicators(quality)
+            updateCoverageMap()
+        case let .transitioning(from, to):
+            addTransitionVisualization(from: from, to: to)
+        case .failed(let reason):
+            addErrorVisualization(reason: reason)
         }
     }
     
-    func visualizePointCloud(_ points: [SIMD3<Float>], color: UIColor) {
-        let node = createPointCloudNode(points: points, color: color)
-        visualizationNodes.append(node)
-        sceneView.scene.rootNode.addChildNode(node)
+    private func addGuideOverlay(for step: GuidanceStep) {
+        guideOverlay?.removeFromParentNode()
+        
+        let overlay = GuideOverlayNode(step: step)
+        sceneView.scene.rootNode.addChildNode(overlay)
+        guideOverlay = overlay
+        
+        // Animate guide appearance
+        overlay.opacity = 0
+        SCNTransaction.begin()
+        SCNTransaction.animationDuration = 0.3
+        overlay.opacity = 1
+        SCNTransaction.commit()
     }
     
-    func clearVisualization() {
+    private func updateQualityIndicators(_ quality: QualityAssessment?) {
+        guard let quality = quality else { return }
+        
+        let indicators = QualityVisualizationNode(quality: quality)
+        sceneView.scene.rootNode.addChildNode(indicators)
+        qualityIndicators = indicators
+        
+        // Update indicators based on quality metrics
+        indicators.updatePointDensity(quality.pointDensity)
+        indicators.updateSurfaceCompleteness(quality.surfaceCompleteness)
+        indicators.updateMotionStability(quality.motionStability)
+        
+        // Show recommendations if needed
+        if !quality.recommendations.isEmpty {
+            showRecommendations(quality.recommendations)
+        }
+    }
+    
+    private func updateCoverageMap() {
+        if coverageMap == nil {
+            coverageMap = CoverageMapNode()
+            sceneView.scene.rootNode.addChildNode(coverageMap!)
+        }
+        
+        // Update coverage visualization
+        coverageMap?.updateWithLatestScanData()
+    }
+    
+    private func showRecommendations(_ recommendations: [ScanningRecommendation]) {
+        // Create floating indicators for each recommendation
+        for (index, recommendation) in recommendations.enumerated() {
+            let indicator = RecommendationIndicatorNode(recommendation: recommendation)
+            indicator.position = SCNVector3(x: 0, y: Float(index) * 0.05, z: -0.3)
+            sceneView.scene.rootNode.addChildNode(indicator)
+            visualizationNodes.append(indicator)
+        }
+    }
+    
+    private func removeExistingVisualizations() {
         visualizationNodes.forEach { $0.removeFromParentNode() }
         visualizationNodes.removeAll()
     }
-    
-    private func setupUI() {
-        overlayView.translatesAutoresizingMaskIntoConstraints = false
-        statusLabel.translatesAutoresizingMaskIntoConstraints = false
-        qualityIndicator.translatesAutoresizingMaskIntoConstraints = false
-        
-        sceneView.addSubview(overlayView)
-        overlayView.addSubview(statusLabel)
-        overlayView.addSubview(qualityIndicator)
-        
-        NSLayoutConstraint.activate([
-            overlayView.topAnchor.constraint(equalTo: sceneView.safeAreaLayoutGuide.topAnchor),
-            overlayView.leadingAnchor.constraint(equalTo: sceneView.leadingAnchor),
-            overlayView.trailingAnchor.constraint(equalTo: sceneView.trailingAnchor),
-            overlayView.heightAnchor.constraint(equalToConstant: 100),
-            
-            statusLabel.centerXAnchor.constraint(equalTo: overlayView.centerXAnchor),
-            statusLabel.topAnchor.constraint(equalTo: overlayView.topAnchor, constant: 20),
-            
-            qualityIndicator.leadingAnchor.constraint(equalTo: overlayView.leadingAnchor, constant: 40),
-            qualityIndicator.trailingAnchor.constraint(equalTo: overlayView.trailingAnchor, constant: -40),
-            qualityIndicator.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 10),
-            qualityIndicator.heightAnchor.constraint(equalToConstant: 4)
-        ])
+}
+
+// Visual guide nodes
+private class GuideOverlayNode: SCNNode {
+    init(step: GuidanceStep) {
+        super.init()
+        // Configure visual guide based on step
+        setupGuideGeometry(for: step)
     }
     
-    private func updateUI(for state: ScanningState, quality: Float) {
-        statusLabel.text = state.description
-        qualityIndicator.progress = quality
-        
-        // Update colors based on quality
-        if quality < 0.3 {
-            qualityIndicator.progressTintColor = .systemRed
-        } else if quality < 0.7 {
-            qualityIndicator.progressTintColor = .systemYellow
-        } else {
-            qualityIndicator.progressTintColor = .systemGreen
-        }
-        
-        // Animate transition
-        UIView.animate(withDuration: 0.3) {
-            self.overlayView.alpha = state == .initializing ? 0.0 : 1.0
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    private func setupGuideGeometry(for step: GuidanceStep) {
+        switch step.visualGuide {
+        case .environmentCheck:
+            addEnvironmentCheckGuide()
+        case .positioningGuide:
+            addPositioningGuide()
+        case .scanningPattern:
+            addScanningPatternGuide()
+        case .detailFocus:
+            addDetailFocusGuide()
+        case .qualityCheck:
+            addQualityCheckGuide()
         }
     }
+}
+
+private class QualityVisualizationNode: SCNNode {
+    private var qualityIndicators: [String: SCNNode] = [:]
     
-    private func updateVisualization(for state: ScanningState) {
-        clearVisualization()
-        
-        switch state {
-        case .lidarScanning:
-            addLidarVisualization()
-        case .photogrammetryScanning:
-            addPhotogrammetryVisualization()
-        case .fusion:
-            addFusionVisualization()
-        case .transitioning(let from, let to):
-            addTransitionVisualization(from: from, to: to)
-        default:
-            break
-        }
+    init(quality: QualityAssessment) {
+        super.init()
+        setupQualityIndicators()
     }
     
-    private func createPointCloudNode(points: [SIMD3<Float>], color: UIColor) -> SCNNode {
-        let geometry = SCNGeometry.pointCloud(from: points, color: color)
-        return SCNNode(geometry: geometry)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
     
-    private func addLidarVisualization() {
-        // Add real-time LiDAR point cloud visualization
-        let lidarNode = SCNNode()
-        lidarNode.geometry = SCNGeometry.createConfidenceVisualization()
-        visualizationNodes.append(lidarNode)
-        sceneView.scene.rootNode.addChildNode(lidarNode)
+    func updatePointDensity(_ density: Float) {
+        // Update point density visualization
     }
     
-    private func addPhotogrammetryVisualization() {
-        // Add feature point visualization for photogrammetry
-        let featureNode = SCNNode()
-        featureNode.geometry = SCNGeometry.createFeatureVisualization()
-        visualizationNodes.append(featureNode)
-        sceneView.scene.rootNode.addChildNode(featureNode)
+    func updateSurfaceCompleteness(_ completeness: Float) {
+        // Update surface completeness visualization
     }
     
-    private func addFusionVisualization() {
-        // Add blended visualization for fusion mode
-        let fusionNode = SCNNode()
-        fusionNode.geometry = SCNGeometry.createFusionVisualization()
-        visualizationNodes.append(fusionNode)
-        sceneView.scene.rootNode.addChildNode(fusionNode)
+    func updateMotionStability(_ stability: Float) {
+        // Update motion stability visualization
+    }
+}
+
+private class CoverageMapNode: SCNNode {
+    private var coverageGeometry: SCNGeometry?
+    
+    func updateWithLatestScanData() {
+        // Update coverage visualization
+    }
+}
+
+private class RecommendationIndicatorNode: SCNNode {
+    init(recommendation: ScanningRecommendation) {
+        super.init()
+        setupIndicator(for: recommendation)
     }
     
-    private func addTransitionVisualization(from: ScanningModes, to: ScanningModes) {
-        // Add transition effect
-        let transitionNode = SCNNode()
-        transitionNode.geometry = SCNGeometry.createTransitionVisualization(from: from, to: to)
-        visualizationNodes.append(transitionNode)
-        sceneView.scene.rootNode.addChildNode(transitionNode)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    private func setupIndicator(for recommendation: ScanningRecommendation) {
+        // Configure indicator based on recommendation type
     }
 }
 

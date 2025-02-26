@@ -1,0 +1,142 @@
+// Xcode Core ML model specification
+
+name: "HairDensityAnalyzer"
+version: "1.0"
+shortDescription: "Hair density analysis and mapping model"
+author: "XCalp"
+license: "Proprietary"
+
+inputDescription {
+  features {
+    name: "meshData"
+    shortDescription: "3D mesh data with normals and curvature"
+    type: MLFeatureTypeMultiArray
+    shape: [1, 100, 100, 4] // Resolution 100x100, 4 channels (x,y,z,curvature)
+  }
+}
+
+outputDescription {
+  features {
+    name: "densityMap"
+    shortDescription: "Hair density map"
+    type: MLFeatureTypeMultiArray
+    shape: [100, 100] // Density prediction for each point
+    
+    name: "confidence"
+    shortDescription: "Prediction confidence score"
+    type: MLFeatureTypeDouble
+  }
+}
+
+trainingInputDescription {
+  features {
+    name: "meshData"
+    shortDescription: "Training mesh data"
+    type: MLFeatureTypeMultiArray
+    shape: [1, 100, 100, 4]
+  }
+  
+  features {
+    name: "groundTruthDensity"
+    shortDescription: "Ground truth density values"
+    type: MLFeatureTypeMultiArray
+    shape: [100, 100]
+  }
+}
+
+metadata {
+  userDefined {
+    key: "com.xcalp.modelType"
+    value: "densityAnalysis"
+    
+    key: "com.xcalp.resolution"
+    value: "100x100"
+    
+    key: "com.xcalp.inputChannels"
+    value: "position_xyz_curvature"
+    
+    key: "com.xcalp.modelPurpose"
+    value: "hairDensityMapping"
+  }
+}
+
+neuralNetworkOptimizer {
+  optimizations {
+    type: MLNeuralNetworkOptimizerTypeQuantization
+    options {
+      quantizationOptions {
+        mode: MLQuantizationModeLinearQuantization
+        nbits: 8
+      }
+    }
+  }
+}
+
+modelParameters {
+  neuralNetwork {
+    layers {
+      // Feature extraction layers
+      convolution {
+        name: "conv1"
+        input: "meshData"
+        output: "conv1_out"
+        kernelSize: [3, 3]
+        outputChannels: 32
+        stride: [1, 1]
+        padding: [1, 1]
+        activation: RELU
+      }
+      
+      maxPool {
+        name: "pool1"
+        input: "conv1_out"
+        output: "pool1_out"
+        kernelSize: [2, 2]
+        stride: [2, 2]
+      }
+      
+      convolution {
+        name: "conv2"
+        input: "pool1_out"
+        output: "conv2_out"
+        kernelSize: [3, 3]
+        outputChannels: 64
+        stride: [1, 1]
+        padding: [1, 1]
+        activation: RELU
+      }
+      
+      // Density estimation layers
+      upSample {
+        name: "upsample1"
+        input: "conv2_out"
+        output: "upsample1_out"
+        scaleFactor: 2
+      }
+      
+      convolution {
+        name: "densityConv"
+        input: "upsample1_out"
+        output: "densityMap"
+        kernelSize: [1, 1]
+        outputChannels: 1
+        activation: SIGMOID
+      }
+      
+      // Confidence estimation
+      globalAveragePool {
+        name: "gap"
+        input: "conv2_out"
+        output: "gap_out"
+      }
+      
+      dense {
+        name: "confidence_fc"
+        input: "gap_out"
+        output: "confidence"
+        outputChannels: 1
+        activation: SIGMOID
+      }
+    }
+  }
+}

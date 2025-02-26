@@ -5,13 +5,16 @@ import SceneKit
 class ClinicalValidator {
     static let shared = ClinicalValidator()
     private let qualityAssurance = QualityAssurance()
+    private let medicalStandards = MedicalStandardsManager.shared
     
     func validateClinicalAccuracy(_ result: ScanResult) throws -> ValidationReport {
-        // Implement clinical accuracy validation
+        // First validate against regional medical standards
+        try medicalStandards.validateMedicalStandards(for: result.scanData)
+        
+        // Then proceed with general clinical accuracy validation
         let accuracyMetrics = calculateAccuracyMetrics(result)
         let validationReport = generateValidationReport(accuracyMetrics)
         
-        // Log validation results
         Logger.shared.logValidation(validationReport)
         
         guard validationReport.meetsMinimumRequirements() else {

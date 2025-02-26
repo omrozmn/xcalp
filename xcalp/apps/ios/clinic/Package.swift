@@ -20,19 +20,19 @@ let package = Package(
     dependencies: [
         .package(
             url: "https://github.com/pointfreeco/swift-composable-architecture",
-            from: "1.0.0"
+            exact: "1.17.1"
         ),
         .package(
             url: "https://github.com/pointfreeco/swift-case-paths",
-            from: "1.0.0"
+            exact: "1.6.1"
         ),
         .package(
             url: "https://github.com/pointfreeco/swift-dependencies",
-            from: "1.0.0"
+            exact: "1.7.0"
         ),
         .package(
             url: "https://github.com/pointfreeco/swift-perception",
-            from: "1.0.0"
+            exact: "1.5.0"
         ),
         .package(
             url: "https://github.com/apple/swift-syntax",
@@ -40,11 +40,11 @@ let package = Package(
         ),
         .package(
             url: "https://github.com/firebase/firebase-ios-sdk",
-            from: "10.0.0"
+            exact: "10.29.0"
         ),
         .package(
             url: "https://github.com/kishikawakatsumi/KeychainAccess",
-            from: "4.0.0"
+            exact: "4.2.2"
         )
     ],
     targets: [
@@ -65,9 +65,13 @@ let package = Package(
             dependencies: [
                 "Core",
                 .product(name: "ComposableArchitecture", package: "swift-composable-architecture"),
+                .product(name: "ComposableArchitectureMacros", package: "swift-composable-architecture"),
                 .product(name: "CasePaths", package: "swift-case-paths"),
+                .product(name: "CasePathsMacros", package: "swift-case-paths"),
                 .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "DependenciesMacros", package: "swift-dependencies"),
                 .product(name: "Perception", package: "swift-perception"),
+                .product(name: "PerceptionMacros", package: "swift-perception"),
                 .product(name: "FirebaseAnalytics", package: "firebase-ios-sdk"),
                 .product(name: "FirebaseAuth", package: "firebase-ios-sdk"),
                 .product(name: "KeychainAccess", package: "KeychainAccess")

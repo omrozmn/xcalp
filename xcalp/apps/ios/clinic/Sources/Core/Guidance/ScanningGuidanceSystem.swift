@@ -399,18 +399,50 @@ final class ScanningGuidanceSystem {
     }
     
     private func generateQualitySuggestions(_ issues: [QualityIssue]) -> [Suggestion] {
-        issues.map { issue in
+        var suggestions: [Suggestion] = []
+        
+        for issue in issues {
             switch issue {
             case .lowPointDensity:
-                return Suggestion("Move closer to capture more detail", priority: .high)
+                suggestions.append(Suggestion(
+                    "Move closer to capture more detail",
+                    priority: .high,
+                    additionalContext: "Maintain 20-30cm distance from surface"
+                ))
             case .highNoise:
-                return Suggestion("Hold device more steady", priority: .medium)
+                suggestions.append(Suggestion(
+                    "Hold device more steady",
+                    priority: .medium,
+                    additionalContext: "Rest your elbows against your body for stability"
+                ))
             case .incompleteFeatures:
-                return Suggestion("Scan from multiple angles", priority: .high)
+                suggestions.append(Suggestion(
+                    "Scan from multiple angles",
+                    priority: .high,
+                    additionalContext: "Move in a smooth arc pattern, 45° at a time"
+                ))
+            case .poorLighting:
+                suggestions.append(Suggestion(
+                    "Improve lighting conditions",
+                    priority: .medium,
+                    additionalContext: "Ensure even lighting without harsh shadows"
+                ))
+            case .excessiveMotion:
+                suggestions.append(Suggestion(
+                    "Slow down scanning movement",
+                    priority: .high,
+                    additionalContext: "Move at about 10cm per second"
+                ))
             default:
-                return Suggestion("Adjust scanning position", priority: .low)
+                suggestions.append(Suggestion(
+                    "Adjust scanning position",
+                    priority: .low,
+                    additionalContext: "Maintain consistent distance and speed"
+                ))
             }
         }
+        
+        return suggestions.sorted { $0.priority > $1.priority }
     }
 }
 

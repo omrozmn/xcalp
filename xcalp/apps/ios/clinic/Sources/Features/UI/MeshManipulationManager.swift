@@ -33,6 +33,98 @@ public final class MeshManipulationManager: ObservableObject {
     private var lastTranslation: simd_float3 = .zero
     private var lastScale: Float = 1.0
     
+    // Add spatial indexing for efficient vertex queries
+    private var spatialIndex: SpatialIndex?
+    private var transformationBuffer: TransformationBuffer
+    private var selectionHistory: [Set<Int>] = []
+    private let maxHistorySize = 20
+    
+    private struct SpatialIndex {
+        var cells: [Int: Set<Int>] = [:]
+        let cellSize: Float
+        
+        init(vertices: [simd_float3], cellSize: Float = 0.01) {
+            self.cellSize = cellSize
+            
+            // Build spatial index
+            for (index, vertex) in vertices.enumerated() {
+                let cell = getCellKey(for: vertex)
+                cells[cell, default: []].insert(index)
+            }
+        }
+        
+        func getCellKey(for position: simd_float3) -> Int {
+            let x = Int(floor(position.x / cellSize))
+            let y = Int(floor(position.y / cellSize))
+            let z = Int(floor(position.z / cellSize))
+            return x &+ (y &* 73856093) &+ (z &* 19349663)
+        }
+        
+        func getVerticesInRadius(_ center: simd_float3, radius: Float) -> Set<Int> {
+            let radiusInCells = Int(ceil(radius / cellSize))
+            var result = Set<Int>()
+            
+            for x in -radiusInCells...radiusInCells {
+                for y in -radiusInCells...radiusInCells {
+                    for z in -radiusInCells...radiusInCells {
+                        let cellCenter = simd_float3(
+                            Float(x) * cellSize,
+                            Float(y) * cellSize,
+                            Float(z) * cellSize
+                        )
+                        let cellKey = getCellKey(for: center + cellCenter)
+                        if let vertices = cells[cellKey] {
+                            result.formUnion(vertices)
+                        }
+                    }
+                }
+            }
+            
+            return result
+        }
+    }
+    
+    private struct TransformationBuffer {
+        var transformations: [simd_float4x4] = []
+        var timestamps: [TimeInterval] = []
+        let maxBufferSize = 60
+        
+        mutating func add(_ transform: simd_float4x4) {
+            transformations.append(transform)
+            timestamps.append(CACurrentMediaTime())
+            
+            if transformations.count > maxBufferSize {
+                transformations.removeFirst()
+                timestamps.removeFirst()
+            }
+        }
+        
+        func predictNextTransform() -> simd_float4x4? {
+            guard transformations.count >= 2 else { return nil }
+            
+            // Calculate velocity from last two transforms
+            let lastTransform = transformations.last!
+            let previousTransform = transformations[transformations.count - 2]
+            let timeDelta = timestamps.last! - timestamps[timestamps.count - 2]
+            
+            // Extract translation and rotation
+            let lastTranslation = lastTransform.columns.3.xyz
+            let prevTranslation = previousTransform.columns.3.xyz
+            
+            // Calculate velocity
+            let velocity = (lastTranslation - prevTranslation) / Float(timeDelta)
+            
+            // Predict next position
+            let predictedTranslation = lastTranslation + velocity * Float(1.0 / 60.0) // Assuming 60fps
+            
+            // Create predicted transform
+            var predictedTransform = lastTransform
+            predictedTransform.columns.3 = simd_float4(predictedTranslation, 1)
+            
+            return predictedTransform
+        }
+    }
+    
     public func setConstraints(_ constraints: ManipulationConstraints) {
         self.constraints = constraints
     }
@@ -43,8 +135,22 @@ public final class MeshManipulationManager: ObservableObject {
             handleGestureBegan(gesture, in: view)
         case .changed:
             handleGestureChanged(gesture, in: view)
+            
+            // Update transformation buffer for prediction
+            let transform = simd_float4x4(
+                translation: translation,
+                rotation: rotationAngle,
+                scale: scale
+            )
+            transformationBuffer.add(transform)
+            
         case .ended, .cancelled:
             handleGestureEnded()
+            
+            // Apply inertia using predicted transform
+            if let predictedTransform = transformationBuffer.predictNextTransform() {
+                applyInertia(with: predictedTransform)
+            }
         default:
             break
         }
@@ -204,18 +310,24 @@ public final class MeshManipulationManager: ObservableObject {
     }
     
     private func findConnectedRegion(startingFrom vertexIndex: Int, in meshNode: SCNNode) -> Set<Int> {
-        var region: Set<Int> = []
-        var queue: [Int] = [vertexIndex]
+        var region = Set<Int>()
+        var queue = CircularBuffer<Int>(capacity: 1000)
+        queue.push(vertexIndex)
         
-        while !queue.isEmpty {
-            let currentIndex = queue.removeFirst()
+        while let currentIndex = queue.pop() {
             guard !region.contains(currentIndex) else { continue }
             
             region.insert(currentIndex)
             
-            // Add neighboring vertices to queue
-            let neighbors = getNeighboringVertices(for: currentIndex, in: meshNode)
-            queue.append(contentsOf: neighbors.filter { !region.contains($0) })
+            // Get neighboring vertices using spatial index
+            if let spatialIndex = spatialIndex {
+                let vertex = getVertexPosition(at: currentIndex, in: meshNode)
+                let neighbors = spatialIndex.getVerticesInRadius(vertex, radius: 0.01)
+                
+                for neighbor in neighbors where !region.contains(neighbor) {
+                    queue.push(neighbor)
+                }
+            }
         }
         
         return region
@@ -226,40 +338,57 @@ public final class MeshManipulationManager: ObservableObject {
         radius: Float,
         meshNode: SCNNode
     ) -> Set<Int> {
-        var vertices: Set<Int> = []
-        let radiusSquared = radius * radius
+        guard let spatialIndex = spatialIndex else {
+            return Set<Int>()
+        }
         
-        // TODO: Implement spatial indexing for better performance
-        // Currently using simple distance check
+        let worldCenter = simd_float3(center)
+        return spatialIndex.getVerticesInRadius(worldCenter, radius: radius)
+    }
+    
+    private func getVertexPosition(at index: Int, in meshNode: SCNNode) -> simd_float3 {
         guard let geometry = meshNode.geometry as? SCNGeometry,
               let vertexSource = geometry.sources(for: .vertex).first else {
-            return vertices
+            return .zero
         }
         
-        for i in 0..<vertexSource.data.count / MemoryLayout<SCNVector3>.size {
-            var vertex = SCNVector3()
-            vertexSource.data.withUnsafeBytes { buffer in
-                vertex = buffer.load(fromByteOffset: i * MemoryLayout<SCNVector3>.size, as: SCNVector3.self)
-            }
-            
-            let worldVertex = meshNode.convertPosition(vertex, to: nil)
-            let distance = simd_distance_squared(
-                simd_float3(worldVertex),
-                simd_float3(center)
-            )
-            
-            if distance <= radiusSquared {
-                vertices.insert(i)
-            }
+        var vertex = SCNVector3()
+        vertexSource.data.withUnsafeBytes { buffer in
+            vertex = buffer.load(fromByteOffset: index * MemoryLayout<SCNVector3>.size, as: SCNVector3.self)
         }
         
-        return vertices
+        let worldVertex = meshNode.convertPosition(vertex, to: nil)
+        return simd_float3(worldVertex)
+    }
+    
+    public func updateSpatialIndex(with vertices: [simd_float3]) {
+        spatialIndex = SpatialIndex(vertices: vertices)
+    }
+    
+    public func undo() {
+        guard !selectionHistory.isEmpty else { return }
+        selectedPoints = selectionHistory.removeLast()
+        HapticFeedbackManager.shared.playFeedback(.selection)
+    }
+    
+    private func saveSelectionState() {
+        selectionHistory.append(selectedPoints)
+        if selectionHistory.count > maxHistorySize {
+            selectionHistory.removeFirst()
+        }
     }
     
     private func getNeighboringVertices(for vertexIndex: Int, in meshNode: SCNNode) -> [Int] {
         // TODO: Implement proper vertex connectivity
         // Currently returning empty array as placeholder
         []
+    }
+    
+    private func applyInertia(with predictedTransform: simd_float4x4) {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            translation = predictedTransform.columns.3.xyz
+            // Update rotation and scale if needed
+        }
     }
 }
 
@@ -349,5 +478,52 @@ extension View {
         meshNode: SCNNode
     ) -> some View {
         modifier(MeshManipulationModifier(manager: manager, meshNode: meshNode))
+    }
+}
+
+// Helper extension for simd operations
+extension simd_float4x4 {
+    init(translation: simd_float3, rotation: simd_float3, scale: Float) {
+        let scaleMatrix = simd_float4x4(diagonal: simd_float4(scale, scale, scale, 1))
+        let rotationMatrix = simd_float4x4(rotationYXZ: rotation)
+        let translationMatrix = simd_float4x4(
+            columns: (
+                simd_float4(1, 0, 0, 0),
+                simd_float4(0, 1, 0, 0),
+                simd_float4(0, 0, 1, 0),
+                simd_float4(translation.x, translation.y, translation.z, 1)
+            )
+        )
+        
+        self = translationMatrix * rotationMatrix * scaleMatrix
+    }
+}
+
+// Efficient circular buffer for queue implementation
+struct CircularBuffer<T> {
+    private var buffer: [T?]
+    private var head = 0
+    private var tail = 0
+    
+    init(capacity: Int) {
+        buffer = Array(repeating: nil, count: capacity)
+    }
+    
+    mutating func push(_ element: T) {
+        buffer[tail] = element
+        tail = (tail + 1) % buffer.count
+    }
+    
+    mutating func pop() -> T? {
+        guard let element = buffer[head] else { return nil }
+        buffer[head] = nil
+        head = (head + 1) % buffer.count
+        return element
+    }
+}
+
+extension simd_float4 {
+    var xyz: simd_float3 {
+        simd_float3(x, y, z)
     }
 }

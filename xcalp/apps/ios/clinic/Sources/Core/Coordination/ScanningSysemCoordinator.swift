@@ -3,6 +3,7 @@ import Metal
 import ARKit
 import CoreML
 import os.log
+import MetricKit
 
 /// Central coordinator managing interactions between scanning subsystems
 public final class ScanningSystemCoordinator {
@@ -30,6 +31,14 @@ public final class ScanningSystemCoordinator {
     private var qualityHistory: [QualityMeasurement] = []
     private var fallbackAttempts = 0
     private let maxFallbackAttempts = 3
+    
+    private var currentGuidanceStep: GuidanceStep?
+    private let feedbackGenerator = UINotificationFeedbackGenerator()
+    private var stepStartTime: Date?
+    
+    // Performance metrics
+    private var performanceMetrics: [String: Any] = [:]
+    private let metricsLogger = MXMetricManager.shared
     
     public init(device: MTLDevice) throws {
         // Initialize subsystems
@@ -89,55 +98,26 @@ public final class ScanningSystemCoordinator {
             throw ScanningError.invalidSession
         }
         
-        guard !isProcessingFrame else {
-            throw ScanningError.processingInProgress
-        }
+        // Start performance tracking
+        let startTime = CFAbsoluteTimeGetCurrent()
         
-        isProcessingFrame = true
-        defer { isProcessingFrame = false }
+        // Update guidance based on current quality
+        let qualityReport = try await qualityCoordinator.processFrame(frame)
+        await updateGuidance(quality: qualityReport)
         
-        do {
-            // Start performance tracking
-            let signpostID = performanceMonitor.startMeasuring("frameProcessing", category: "scanning")
-            defer { performanceMonitor.endMeasuring("frameProcessing", signpostID: signpostID, category: "scanning") }
-            
-            // Parallel analysis
-            async let qualityAssessment = qualityCoordinator.processFrame(frame)
-            async let lightingAnalysis = lightingAnalyzer.analyzeLighting(frame)
-            async let diagnosticSummary = diagnosticReporter.generateReport(
-                sessionID: sessionID,
-                frame: frame
-            )
-            
-            // Wait for parallel analysis
-            let (quality, lighting, diagnostics) = try await (
-                qualityAssessment,
-                lightingAnalysis,
-                diagnosticSummary
-            )
-            
-            // Update quality history
-            updateQualityHistory(quality)
-            
-            // Check for quality issues
-            try await handleQualityIssues(quality, lighting: lighting)
-            
-            // Process mesh if quality is acceptable
-            let processedMesh = try await processMeshIfQualityAcceptable(
-                frame: frame,
-                quality: quality
-            )
-            
-            return FrameProcessingResult(
-                mesh: processedMesh,
-                quality: quality,
-                lighting: lighting,
-                diagnostics: diagnostics
-            )
-        } catch {
-            await handleProcessingError(error)
-            throw error
-        }
+        // Process frame with current mode settings
+        let result = try await processFrameWithCurrentMode(frame, quality: qualityReport)
+        
+        // Update visualization
+        try await updateVisualization(frame: frame, result: result)
+        
+        // Log performance metrics
+        let processingTime = CFAbsoluteTimeGetCurrent() - startTime
+        performanceMetrics["frameProcessingTime"] = processingTime
+        performanceMetrics["frameTimestamp"] = frame.timestamp
+        logPerformanceMetrics()
+        
+        return result
     }
     
     private func initializeSubsystems(
@@ -232,6 +212,16 @@ public final class ScanningSystemCoordinator {
     
     private func handleProcessingError(_ error: Error) async {
         logger.error("Processing error: \(error.localizedDescription)")
+        
+        // Structured error recovery
+        let recoveryResult = await attemptErrorRecovery(for: error)
+        
+        if recoveryResult.success {
+            logger.info("Error recovery successful")
+            return
+        }
+        
+        // If recovery failed, handle the error
         errorHandler.handle(error, severity: .high)
         
         if let scanningError = error as? ScanningError {
@@ -244,6 +234,163 @@ public final class ScanningSystemCoordinator {
                 break
             }
         }
+        
+        // Provide user feedback about the error
+        await provideErrorFeedback(error: error, recoveryAttempted: recoveryResult.attempted)
+    }
+    
+    private func attemptErrorRecovery(for error: Error) async -> (attempted: Bool, success: Bool) {
+        guard let scanningError = error as? ScanningError else {
+            return (false, false)
+        }
+        
+        switch scanningError {
+        case .qualityBelowThreshold:
+            do {
+                try await switchToFallbackMode()
+                return (true, true)
+            } catch {
+                return (true, false)
+            }
+            
+        case .insufficientLighting:
+            // Attempt to adjust lighting settings
+            return (true, await adjustLightingSettings())
+            
+        default:
+            return (false, false)
+        }
+    }
+    
+    private func provideErrorFeedback(error: Error, recoveryAttempted: Bool) async {
+        let feedbackMessage: String
+        let hapticPattern: HapticPattern
+        
+        if recoveryAttempted {
+            feedbackMessage = "We couldn't automatically fix the issue. Please check the following:"
+            hapticPattern = .error
+        } else {
+            feedbackMessage = "An error occurred during scanning:"
+            hapticPattern = .warning
+        }
+        
+        // Provide voice feedback
+        SpeechSynthesizer.shared.speak(feedbackMessage)
+        
+        // Provide haptic feedback
+        feedbackGenerator.notificationOccurred(hapticPattern == .error ? .error : .warning)
+        
+        // Show visual error details
+        NotificationCenter.default.post(
+            name: .scanningErrorOccurred,
+            object: nil,
+            userInfo: [
+                "error": error.localizedDescription,
+                "recoveryAttempted": recoveryAttempted
+            ]
+        )
+    }
+    
+    private func updateGuidance(quality: QualityAssessment) async {
+        guard let currentStep = currentGuidanceStep else {
+            // Initialize first step
+            currentGuidanceStep = enhancedGuidanceSteps.first
+            stepStartTime = Date()
+            provideFeedback(for: enhancedGuidanceSteps.first!)
+            return
+        }
+        
+        // Check if current step requirements are met
+        if meetsQualityThresholds(quality: quality, thresholds: currentStep.qualityThresholds) {
+            let stepDuration = Date().timeIntervalSince(stepStartTime ?? Date())
+            
+            // Only advance if minimum duration is met
+            if stepDuration >= currentStep.minDuration {
+                advanceToNextStep()
+            }
+        } else {
+            // Provide recovery guidance
+            provideRecoveryFeedback(for: currentStep)
+        }
+    }
+    
+    private func advanceToNextStep() {
+        guard let currentIndex = enhancedGuidanceSteps.firstIndex(where: { $0.phase == currentGuidanceStep?.phase }) else {
+            return
+        }
+        
+        let nextIndex = enhancedGuidanceSteps.index(after: currentIndex)
+        guard nextIndex < enhancedGuidanceSteps.endIndex else {
+            // Scanning complete
+            completeScan()
+            return
+        }
+        
+        currentGuidanceStep = enhancedGuidanceSteps[nextIndex]
+        stepStartTime = Date()
+        provideFeedback(for: enhancedGuidanceSteps[nextIndex])
+    }
+    
+    private func provideFeedback(for step: GuidanceStep) {
+        // Voice guidance
+        SpeechSynthesizer.shared.speak(step.voicePrompt)
+        
+        // Haptic feedback
+        switch step.hapticPattern {
+        case .singleTap:
+            feedbackGenerator.notificationOccurred(.success)
+        case .continuousFeedback:
+            feedbackGenerator.notificationOccurred(.warning)
+        case .dynamicFeedback:
+            feedbackGenerator.notificationOccurred(.error)
+        case .preciseFeedback:
+            // Custom haptic pattern for precise feedback
+            let generator = UIImpactFeedbackGenerator(style: .rigid)
+            generator.impactOccurred()
+        case .success:
+            feedbackGenerator.notificationOccurred(.success)
+        }
+        
+        // Visual guide update through notification
+        NotificationCenter.default.post(
+            name: .guidanceStepChanged,
+            object: nil,
+            userInfo: ["step": step]
+        )
+    }
+    
+    private func provideRecoveryFeedback(for step: GuidanceStep) {
+        guard let recoveryPrompt = step.recoveryPrompt else { return }
+        
+        // Voice recovery guidance
+        SpeechSynthesizer.shared.speak(recoveryPrompt)
+        
+        // Haptic warning
+        feedbackGenerator.notificationOccurred(.warning)
+        
+        // Visual recovery guide
+        NotificationCenter.default.post(
+            name: .guidanceRecoveryNeeded,
+            object: nil,
+            userInfo: [
+                "step": step,
+                "recoveryPrompt": recoveryPrompt
+            ]
+        )
+    }
+    
+    private func completeScan() {
+        // Log final metrics
+        logPerformanceMetrics()
+        NotificationCenter.default.post(name: .scanningComplete, object: nil)
+    }
+    
+    private func logPerformanceMetrics() {
+        let payload = MXMetricPayload(
+            latestApplicationVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown",
+            metrics: performanceMetrics
+        )
+        metricsLogger.submit(payload)
     }
 }
 

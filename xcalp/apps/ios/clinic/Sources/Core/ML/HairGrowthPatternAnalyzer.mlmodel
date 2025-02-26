@@ -1,0 +1,29 @@
+// CoreML model for hair growth pattern analysis
+version: 1
+spec: "3"
+
+description: "Natural hair growth pattern detection model"
+author: "Xcalp"
+license: "Private"
+
+input: "surfaceFeatures"
+  type: multiArray
+  shape: [1, 6, 100, 100]  // Orientation, curvature, height, landmarks
+  name: "Surface analysis features"
+
+output: "growthDirection"
+  type: multiArray
+  shape: [3]  // x, y, z vectors
+  name: "Predicted growth direction"
+
+output: "confidence"
+  type: double
+  name: "Prediction confidence"
+
+parameters:
+  minFeatureStrength: 0.3
+  directionSmoothingFactor: 0.15
+  anatomicalConstraints: true
+
+preprocessing: "normalized"
+postprocessing: "directionNormalization"

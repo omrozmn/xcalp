@@ -56,6 +56,68 @@ final class MeshProcessingCoordinator {
             activeOperations.removeValue(forKey: operationID)
         }
     }
+    
+    private func performClinicalValidation(
+        _ result: ProcessedMeshResult,
+        config: ClinicalValidationConfig
+    ) async throws -> ValidationReport {
+        var validationIssues: [ValidationIssue] = []
+        
+        // Validate feature preservation
+        if result.qualityReport.featurePreservation < config.minFeaturePreservation {
+            validationIssues.append(.insufficientFeaturePreservation(
+                actual: result.qualityReport.featurePreservation,
+                required: config.minFeaturePreservation
+            ))
+        }
+        
+        // Validate processing performance
+        if result.processingTime > config.maxProcessingTime {
+            validationIssues.append(.processingTimeTooLong(
+                actual: result.processingTime,
+                maximum: config.maxProcessingTime
+            ))
+        }
+        
+        // Validate mesh quality
+        if result.qualityReport.overallScore < config.minQualityScore {
+            validationIssues.append(.qualityBelowThreshold(
+                actual: result.qualityReport.overallScore,
+                required: config.minQualityScore
+            ))
+        }
+        
+        // Generate validation report
+        return ValidationReport(
+            isValid: validationIssues.isEmpty,
+            issues: validationIssues,
+            metrics: result.qualityReport,
+            recommendations: generateOptimizationRecommendations(result)
+        )
+    }
+    
+    private func generateOptimizationRecommendations(
+        _ result: ProcessedMeshResult
+    ) -> [OptimizationRecommendation] {
+        var recommendations: [OptimizationRecommendation] = []
+        
+        // Analyze quality metrics and suggest improvements
+        if result.qualityReport.vertexDensity < ClinicalConstants.optimalVertexDensity {
+            recommendations.append(.increaseDensity(
+                current: result.qualityReport.vertexDensity,
+                target: ClinicalConstants.optimalVertexDensity
+            ))
+        }
+        
+        // Check topology optimization opportunities
+        if result.validationResults.contains(where: { $0.hasTopologyIssues }) {
+            recommendations.append(.optimizeTopology(
+                issues: result.validationResults.flatMap { $0.topologyIssues }
+            ))
+        }
+        
+        return recommendations
+    }
 }
 
 // MARK: - Supporting Types
@@ -73,6 +135,13 @@ struct ProcessedMeshResult {
     let validationResults: [MeshValidationSystem.ValidationResult]
     let optimizationStats: MeshOptimizer.OptimizationStats
     let processingTime: TimeInterval
+}
+
+struct ClinicalValidationConfig {
+    let minFeaturePreservation: Float
+    let maxProcessingTime: TimeInterval
+    let minQualityScore: Float
+    let requiredValidationStages: Set<ValidationStage>
 }
 
 // MARK: - Processing Operation

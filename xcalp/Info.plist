@@ -4,5 +4,9 @@
 <dict>
     <key>CFBundleExecutable</key>
     <string>xcalp</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>We use your location to automatically set regional preferences like measurement units and date formats.</string>
+    <key>NSLocationUsageDescription</key>
+    <string>Location is used to provide region-appropriate settings and comply with local medical regulations.</string>
 </dict>
 </plist>

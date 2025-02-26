@@ -9,6 +9,9 @@ public struct SecurityFeature: ReducerProtocol {
         var encryptionStatus: EncryptionStatus = .idle
         var currentError: SecurityError?
         var auditLog: [AuditEvent] = []
+        var lastKeyRotation: Date?
+        var emergencyAccessEnabled: Bool = false
+        var dataAccessLogs: [DataAccessLog] = []
     }
     
     public enum Action: Equatable {
@@ -20,6 +23,10 @@ public struct SecurityFeature: ReducerProtocol {
         case encryptionComplete(Result<Data, SecurityError>)
         case logEvent(AuditEvent)
         case exportAuditLog
+        case rotateEncryptionKeys
+        case enableEmergencyAccess(String)
+        case disableEmergencyAccess
+        case logDataAccess(DataAccessLog)
     }
     
     public enum BiometricType: Equatable {
@@ -50,6 +57,24 @@ public struct SecurityFeature: ReducerProtocol {
         let userIdentifier: String
         let resourceType: String
         let status: String
+        let accessType: AccessType
+        let ipAddress: String?
+        let deviceIdentifier: String
+    }
+    
+    public enum AccessType: String, Equatable {
+        case read
+        case write
+        case delete
+        case export
+        case emergency
+    }
+    
+    public struct DataAccessLog: Equatable {
+        let timestamp: Date
+        let resourceId: String
+        let accessType: AccessType
+        let reason: String?
     }
     
     @Dependency(\.securityManager) var securityManager
@@ -95,6 +120,51 @@ public struct SecurityFeature: ReducerProtocol {
                 
             case .exportAuditLog:
                 return exportAuditLogData()
+                
+            case .rotateEncryptionKeys:
+                return rotateKeys()
+                
+            case .enableEmergencyAccess(let reason):
+                state.emergencyAccessEnabled = true
+                let event = AuditEvent(
+                    timestamp: Date(),
+                    action: "emergency_access_enabled",
+                    userIdentifier: securityManager.currentUserIdentifier,
+                    resourceType: "system",
+                    status: "success",
+                    accessType: .emergency,
+                    ipAddress: securityManager.currentIPAddress,
+                    deviceIdentifier: securityManager.deviceIdentifier
+                )
+                return .send(.logEvent(event))
+                
+            case .disableEmergencyAccess:
+                state.emergencyAccessEnabled = false
+                let event = AuditEvent(
+                    timestamp: Date(),
+                    action: "emergency_access_disabled",
+                    userIdentifier: securityManager.currentUserIdentifier,
+                    resourceType: "system",
+                    status: "success",
+                    accessType: .emergency,
+                    ipAddress: securityManager.currentIPAddress,
+                    deviceIdentifier: securityManager.deviceIdentifier
+                )
+                return .send(.logEvent(event))
+                
+            case .logDataAccess(let log):
+                state.dataAccessLogs.append(log)
+                let event = AuditEvent(
+                    timestamp: log.timestamp,
+                    action: "data_access",
+                    userIdentifier: securityManager.currentUserIdentifier,
+                    resourceType: log.resourceId,
+                    status: "success",
+                    accessType: log.accessType,
+                    ipAddress: securityManager.currentIPAddress,
+                    deviceIdentifier: securityManager.deviceIdentifier
+                )
+                return .send(.logEvent(event))
             }
         }
     }
@@ -145,7 +215,10 @@ public struct SecurityFeature: ReducerProtocol {
             action: "user_authentication",
             userIdentifier: securityManager.currentUserIdentifier,
             resourceType: "system",
-            status: success ? "success" : "failure"
+            status: success ? "success" : "failure",
+            accessType: .read,
+            ipAddress: securityManager.currentIPAddress,
+            deviceIdentifier: securityManager.deviceIdentifier
         )
         return .send(.logEvent(event))
     }
@@ -161,6 +234,37 @@ public struct SecurityFeature: ReducerProtocol {
         Effect.task {
             await auditLogger.exportLog()
             return .none
+        }
+    }
+    
+    private func rotateKeys() -> Effect<Action, Never> {
+        Effect.task {
+            do {
+                try await securityManager.rotateEncryptionKeys()
+                let event = AuditEvent(
+                    timestamp: Date(),
+                    action: "key_rotation",
+                    userIdentifier: securityManager.currentUserIdentifier,
+                    resourceType: "system",
+                    status: "success",
+                    accessType: .write,
+                    ipAddress: securityManager.currentIPAddress,
+                    deviceIdentifier: securityManager.deviceIdentifier
+                )
+                return .logEvent(event)
+            } catch {
+                let event = AuditEvent(
+                    timestamp: Date(),
+                    action: "key_rotation",
+                    userIdentifier: securityManager.currentUserIdentifier,
+                    resourceType: "system",
+                    status: "failure",
+                    accessType: .write,
+                    ipAddress: securityManager.currentIPAddress,
+                    deviceIdentifier: securityManager.deviceIdentifier
+                )
+                return .logEvent(event)
+            }
         }
     }
 }

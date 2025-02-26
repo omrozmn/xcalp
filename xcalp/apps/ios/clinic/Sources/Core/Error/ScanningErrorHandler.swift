@@ -99,22 +99,32 @@ final class ScanningErrorHandler {
         for error: Error,
         context: ScanningContext
     ) throws -> RecoveryStrategy {
+        // Log error for analysis
+        logger.error("Determining recovery strategy for error: \(error.localizedDescription)")
+        
         switch error {
         case let trackingError as ARError where trackingError.code == .worldTrackingFailed:
+            notifyUser(guidance: "Hold the device steady and ensure good lighting")
             return .resetTracking
             
         case let qualityError as ScanQualityError:
-            return determineQualityRecoveryStrategy(qualityError, context: context)
+            let strategy = determineQualityRecoveryStrategy(qualityError, context: context)
+            logRecoveryAttempt(error: qualityError, strategy: strategy)
+            return strategy
             
         case let processingError as ProcessingError:
-            return determineProcessingRecoveryStrategy(processingError, context: context)
+            let strategy = determineProcessingRecoveryStrategy(processingError, context: context)
+            logRecoveryAttempt(error: processingError, strategy: strategy)
+            return strategy
             
         case let performanceError as PerformanceError:
-            return determinePerformanceRecoveryStrategy(performanceError, context: context)
+            let strategy = determinePerformanceRecoveryStrategy(performanceError, context: context)
+            logRecoveryAttempt(error: performanceError, strategy: strategy)
+            return strategy
             
         default:
-            // Generic recovery strategy
-            return .resetAndRetry
+            // Implement progressive recovery for unknown errors
+            return determineProgressiveRecovery(context: context)
         }
     }
     
@@ -196,6 +206,21 @@ final class ScanningErrorHandler {
                 )
             )
             
+        default:
+            return .resetAndRetry
+        }
+    }
+    
+    private func determineProgressiveRecovery(context: ScanningContext) -> RecoveryStrategy {
+        let previousAttempts = recoveryHistory.filter { $0.timestamp > Date().addingTimeInterval(-300) }
+        
+        switch previousAttempts.count {
+        case 0:
+            return .pauseAndStabilize(duration: 2.0)
+        case 1:
+            return .adjustQualityThresholds(settings: QualitySettings(processingQuality: .medium))
+        case 2:
+            return .optimizeResources(target: .memory, settings: QualitySettings(processingQuality: .low))
         default:
             return .resetAndRetry
         }
@@ -303,6 +328,23 @@ final class ScanningErrorHandler {
             Description: \(event.error.localizedDescription)
             Context: \(String(describing: event.context))
             """)
+    }
+    
+    private func logRecoveryAttempt(error: Error, strategy: RecoveryStrategy) {
+        recoveryHistory.append(RecoveryAttempt(
+            timestamp: Date(),
+            errorType: String(describing: type(of: error)),
+            strategy: strategy,
+            context: [
+                "error_description": error.localizedDescription,
+                "strategy_type": String(describing: strategy)
+            ]
+        ))
+        
+        // Trim history to last 24 hours
+        recoveryHistory = recoveryHistory.filter { 
+            $0.timestamp > Date().addingTimeInterval(-86400)
+        }
     }
     
     private func setupNotificationObservers() {
